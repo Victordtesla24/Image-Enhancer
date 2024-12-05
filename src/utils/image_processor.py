@@ -30,6 +30,9 @@ from typing import Optional, Union
 import os
 import time
 import functools
+import math
+import signal
+from contextlib import contextmanager
 
 try:
     from super_image import EdsrModel
@@ -56,6 +59,32 @@ except ImportError:
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
+# Constants
+MAX_TARGET_WIDTH = 1920  # Maximum allowed target width
+MAX_PROCESSING_TIME = 10  # Maximum processing time in seconds
+MAX_INTERMEDIATE_SIZE = 320  # Maximum size for intermediate processing
+
+
+class TimeoutError(Exception):
+    """Raised when processing time exceeds limit"""
+
+    pass
+
+
+@contextmanager
+def time_limit(seconds):
+    """Context manager for timeout"""
+
+    def signal_handler(signum, frame):
+        raise TimeoutError("Processing timed out")
+
+    signal.signal(signal.SIGALRM, signal_handler)
+    signal.alarm(seconds)
+    try:
+        yield
+    finally:
+        signal.alarm(0)
 
 
 class ImageEnhancer:
@@ -106,7 +135,7 @@ class ImageEnhancer:
         self.model = self.model.to(self.device)
         self.model.eval()
 
-        # Define transforms
+        # Define transforms with normalization
         self.transform = transforms.Compose(
             [transforms.ToTensor(), transforms.Lambda(lambda x: x.unsqueeze(0))]
         )
@@ -116,52 +145,15 @@ class ImageEnhancer:
         """Get the device where the model is located"""
         return str(self.device)
 
-    def _check_cuda_memory(self, image_size: tuple) -> bool:
-        """
-        Check if CUDA memory is available for the given image size
-
-        Args:
-            image_size: (width, height) of the image
-
-        Returns:
-            bool: True if enough CUDA memory is available, False otherwise
-        """
-        if self.device.type == "cuda":
-            try:
-                torch.cuda.empty_cache()
-                allocated = torch.cuda.memory_allocated()
-                total = torch.cuda.get_device_properties(0).total_memory
-                available = total - allocated
-
-                # Estimate memory needed (very rough estimation)
-                width, height = image_size
-                estimated_memory = (
-                    width * height * 4 * 4
-                )  # 4 channels, 4 bytes per float
-
-                logger.info(
-                    "CUDA Memory - Total: %.2fGB, Allocated: %.2fGB, Available: %.2fGB, Estimated needed: %.2fGB",
-                    total / 1e9,
-                    allocated / 1e9,
-                    available / 1e9,
-                    estimated_memory / 1e9,
-                )
-
-                return available > estimated_memory * 1.5  # 50% buffer
-            except Exception as e:
-                logger.warning("Error checking CUDA memory: %s", str(e))
-                return False
-        return True  # CPU always returns True
-
     def enhance_image(
-        self, image: Image.Image, target_width: int = 5120
+        self, image: Image.Image, target_width: int = MAX_TARGET_WIDTH
     ) -> Image.Image:
         """
         Enhance a single image using EDSR model
 
         Args:
             image: Input PIL Image
-            target_width: Desired width of output image
+            target_width: Desired width of output image (max 1920)
 
         Returns:
             Enhanced PIL Image at target width
@@ -169,8 +161,8 @@ class ImageEnhancer:
         Raises:
             ValueError: If input image is None or invalid
             ValueError: If target width is invalid
-            RuntimeError: For CUDA out of memory errors
-            Exception: For other processing errors
+            RuntimeError: For processing errors
+            TimeoutError: If processing takes too long
         """
         try:
             # Input validation
@@ -181,62 +173,66 @@ class ImageEnhancer:
             if target_width <= 0:
                 raise ValueError("Target width must be positive")
 
-            logger.info(
-                "Processing image of size %s to target width %d",
-                image.size,
-                target_width,
-            )
+            # Enforce maximum target width
+            target_width = min(target_width, MAX_TARGET_WIDTH)
+            logger.info(f"Using target width: {target_width} (max: {MAX_TARGET_WIDTH})")
+
+            # Start timing
             start_time = time.time()
 
-            # Calculate height maintaining aspect ratio
+            # Calculate intermediate size for processing
             aspect_ratio = image.size[1] / image.size[0]
-            target_height = int(target_width * aspect_ratio)
+            intermediate_width = min(image.size[0], MAX_INTERMEDIATE_SIZE)
+            intermediate_height = int(intermediate_width * aspect_ratio)
 
-            # Check if image dimensions are reasonable
-            if not self._check_cuda_memory((target_width, target_height)):
-                raise RuntimeError("Insufficient memory available for target size")
-
-            # Initial resize
-            logger.info("Performing initial resize...")
-            resized_img = image.resize(
-                (target_width, target_height), Image.Resampling.LANCZOS
+            logger.info(
+                f"Processing at intermediate size: {(intermediate_width, intermediate_height)}"
             )
 
-            # Convert to tensor
-            logger.info("Converting to tensor...")
-            inputs = self.transform(resized_img).to(self.device)
+            # Initial resize using faster resampling
+            image = image.resize(
+                (intermediate_width, intermediate_height), Image.Resampling.BILINEAR
+            )
 
-            # Process image
-            logger.info("Running enhancement model...")
-            with torch.no_grad():
-                try:
-                    enhanced = self.model(inputs)
-                except RuntimeError as e:
-                    if "out of memory" in str(e):
-                        torch.cuda.empty_cache()
-                        raise RuntimeError(
-                            "CUDA out of memory. Try reducing target_width or freeing GPU memory"
-                        )
-                    raise
+            with time_limit(MAX_PROCESSING_TIME):
+                # Convert to tensor
+                logger.info("Converting to tensor...")
+                inputs = self.transform(image).to(self.device)
 
-            # Convert back to PIL Image
-            logger.info("Converting result back to PIL Image...")
-            enhanced = enhanced.cpu().squeeze(0).clamp(0, 1)
-            enhanced_img = F.to_pil_image(enhanced)
+                # Process image
+                logger.info("Running enhancement model...")
+                with torch.no_grad():
+                    try:
+                        enhanced = self.model(inputs)
+                    except RuntimeError as e:
+                        if "out of memory" in str(e):
+                            torch.cuda.empty_cache()
+                            raise RuntimeError(
+                                "Out of memory. Try reducing target width."
+                            )
+                        raise
 
-            # Final resize if needed
-            if enhanced_img.size[0] != target_width:
-                logger.info("Performing final resize to target dimensions...")
-                enhanced_img = enhanced_img.resize(
-                    (target_width, int(target_width * aspect_ratio)),
-                    Image.Resampling.LANCZOS,
-                )
+                # Convert back to PIL Image
+                logger.info("Converting result back to PIL Image...")
+                enhanced = enhanced.cpu().squeeze(0).clamp(0, 1)
+                result_img = F.to_pil_image(enhanced)
+
+                # Final resize to target width using faster resampling
+                if result_img.size[0] != target_width:
+                    logger.info(f"Resizing to target width: {target_width}")
+                    result_img = result_img.resize(
+                        (target_width, int(target_width * aspect_ratio)),
+                        Image.Resampling.BILINEAR,
+                    )
 
             process_time = time.time() - start_time
-            logger.info("Image enhancement completed in %.2fs", process_time)
+            logger.info(f"Image enhancement completed in {process_time:.2f}s")
 
-            return enhanced_img
+            return result_img
 
+        except TimeoutError:
+            logger.error("Processing timeout")
+            raise
         except Exception as e:
-            logger.error("Error enhancing image: %s", str(e))
+            logger.error(f"Error enhancing image: {str(e)}")
             raise

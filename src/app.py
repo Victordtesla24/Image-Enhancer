@@ -1,6 +1,6 @@
 """Main application module"""
 
-from fastapi import FastAPI, UploadFile, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
@@ -9,6 +9,8 @@ from src.components.file_uploader import FileUploader
 from src.utils.image_processor import ImageEnhancer
 import io
 import logging
+from PIL import Image
+import traceback
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -40,12 +42,12 @@ async def read_root():
 
 
 @app.post("/enhance")
-async def enhance_image(file: UploadFile, target_width: int = 5120):
+async def enhance_image(request: Request, target_width: int = 5120):
     """
     Enhance an image
 
     Args:
-        file: Image file to enhance
+        request: Request object containing the image file in body
         target_width: Desired width of output image
 
     Returns:
@@ -55,8 +57,14 @@ async def enhance_image(file: UploadFile, target_width: int = 5120):
         HTTPException: If input is invalid or processing fails
     """
     try:
+        # Read raw body
+        logger.info("Reading request body...")
+        body = await request.body()
+        if not body:
+            raise HTTPException(status_code=400, detail="No image data provided")
+
         logger.info(
-            f"Received enhancement request - File: {file.filename}, Content-Type: {file.content_type}, Target Width: {target_width}"
+            f"Received enhancement request - Content Length: {len(body)}, Target Width: {target_width}"
         )
 
         # Validate target width
@@ -64,16 +72,21 @@ async def enhance_image(file: UploadFile, target_width: int = 5120):
             logger.error(f"Invalid target width: {target_width}")
             raise HTTPException(status_code=400, detail="Target width must be positive")
 
-        # Validate and load image
+        # Load and validate image
         logger.info("Validating image...")
         try:
-            image = file_uploader.validate_image(file)
+            image = Image.open(io.BytesIO(body))
+            image.verify()  # Verify it's actually an image
+            # Re-open because verify() closes the file
+            image = Image.open(io.BytesIO(body))
             logger.info(
                 f"Image validated successfully - Size: {image.size}, Mode: {image.mode}"
             )
         except Exception as e:
-            logger.error(f"Image validation failed: {str(e)}")
-            raise
+            logger.error(f"Image validation failed: {str(e)}\n{traceback.format_exc()}")
+            raise HTTPException(
+                status_code=400, detail=f"Invalid image format: {str(e)}"
+            )
 
         # Enhance image
         try:
@@ -81,29 +94,40 @@ async def enhance_image(file: UploadFile, target_width: int = 5120):
             enhanced = image_enhancer.enhance_image(image, target_width=target_width)
             logger.info(f"Enhancement completed - New size: {enhanced.size}")
         except RuntimeError as e:
+            logger.error(
+                f"Runtime error during enhancement: {str(e)}\n{traceback.format_exc()}"
+            )
             if "out of memory" in str(e).lower():
-                logger.error(f"Out of memory error during enhancement: {str(e)}")
                 raise HTTPException(
                     status_code=507,
                     detail="Insufficient memory to process image. Try reducing target width.",
                 )
-            logger.error(f"Runtime error during enhancement: {str(e)}")
-            raise
+            raise HTTPException(status_code=500, detail=f"Enhancement failed: {str(e)}")
         except Exception as e:
-            logger.error(f"Error during enhancement: {str(e)}")
-            raise
+            logger.error(
+                f"Error during enhancement: {str(e)}\n{traceback.format_exc()}"
+            )
+            raise HTTPException(status_code=500, detail=f"Enhancement failed: {str(e)}")
 
         # Convert to bytes
         logger.info("Converting enhanced image to PNG...")
-        img_byte_arr = io.BytesIO()
-        enhanced.save(img_byte_arr, format="PNG")
-        img_byte_arr.seek(0)
+        try:
+            img_byte_arr = io.BytesIO()
+            enhanced.save(img_byte_arr, format="PNG")
+            img_byte_arr.seek(0)
+            result = img_byte_arr.getvalue()
+            logger.info(f"Conversion complete - Output size: {len(result)} bytes")
+        except Exception as e:
+            logger.error(f"Error converting to PNG: {str(e)}\n{traceback.format_exc()}")
+            raise HTTPException(
+                status_code=500, detail=f"Failed to convert image: {str(e)}"
+            )
 
         logger.info("Enhancement process completed successfully")
-        return Response(content=img_byte_arr.getvalue(), media_type="image/png")
+        return Response(content=result, media_type="image/png")
 
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(f"Unexpected error: {str(e)}\n{traceback.format_exc()}")
         raise HTTPException(status_code=500, detail=f"Error processing image: {str(e)}")

@@ -93,14 +93,10 @@ async function processImage(file) {
         };
         reader.readAsDataURL(file);
 
-        // Prepare form data
-        const formData = new FormData();
-        formData.append('file', file);
-        
         // Send to API
         const response = await fetch(`/enhance?target_width=${widthSlider.value}`, {
             method: 'POST',
-            body: formData
+            body: file
         });
 
         if (!response.ok) {
