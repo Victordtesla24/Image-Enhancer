@@ -71,8 +71,9 @@ if [ $? -eq 0 ]; then
         git push origin $BRANCH || echo -e "${YELLOW}No remote repository configured${NC}"
     fi
     
-    # Run the Streamlit app
+    # Run the Streamlit app with PYTHONPATH set
     echo -e "${GREEN}Starting Streamlit app...${NC}"
+    export PYTHONPATH=$PYTHONPATH:$(pwd)
     if ! streamlit run src/app.py; then
         echo -e "${RED}Failed to start Streamlit app${NC}"
         exit 1
