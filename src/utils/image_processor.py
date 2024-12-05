@@ -19,13 +19,13 @@ from torchvision.models import resnet50, ResNet50_Weights
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Constants - Updated for better performance
+# Constants - Updated for professional quality
 MAX_TARGET_WIDTH = 5120  # Support up to 5K resolution
-MAX_INTERMEDIATE_SIZE = 1024  # Reduced for better performance
-PROCESSING_TIMEOUT = 60  # Reduced timeout
-SECTION_HEIGHT = 64  # Reduced for better performance
+MAX_INTERMEDIATE_SIZE = 2560  # Increased for better quality
+PROCESSING_TIMEOUT = 60
+SECTION_HEIGHT = 512  # Increased for better detail preservation
 MEMORY_THRESHOLD = 0.8
-MODEL_LOAD_TIMEOUT = 30  # Reduced timeout
+MODEL_LOAD_TIMEOUT = 30
 
 
 class AIModel:
@@ -48,29 +48,44 @@ class AIModel:
 
 
 class SuperResolutionModel(AIModel):
-    """Advanced Super Resolution Model"""
+    """Advanced Super Resolution Model with professional-grade enhancements"""
 
     def __init__(self):
         super().__init__(
             "SuperRes",
-            "Advanced Super Resolution using ResNet backbone",
+            "Professional Super Resolution with adaptive sharpening",
+        )
+        self.normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        )
+        self.denormalize = transforms.Normalize(
+            mean=[-0.485 / 0.229, -0.456 / 0.224, -0.406 / 0.225],
+            std=[1 / 0.229, 1 / 0.224, 1 / 0.225],
         )
 
     def load(self):
         try:
-            # Simplified model for better performance
-            self.model = nn.Sequential(
-                nn.Conv2d(3, 64, kernel_size=3, padding=1),
-                nn.ReLU(True),
-                nn.Conv2d(64, 64, kernel_size=3, padding=1),
-                nn.ReLU(True),
-                nn.Conv2d(64, 32, kernel_size=3, padding=1),
-                nn.ReLU(True),
-                nn.Conv2d(32, 3, kernel_size=3, padding=1),
-                nn.Sigmoid(),
+            backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+            self.feature_extractor = nn.Sequential(*list(backbone.children())[:-2])
+
+            # Enhanced architecture for professional quality
+            self.enhancement_layers = nn.Sequential(
+                nn.Conv2d(2048, 1024, kernel_size=3, padding=1),
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(1024, 512, kernel_size=3, padding=1),
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(512, 256, kernel_size=3, padding=1),
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(256, 128, kernel_size=3, padding=1),
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(128, 3, kernel_size=3, padding=1),
+                nn.Tanh(),
             )
-            self.model.to(self.device)
-            self.model.eval()
+
+            self.feature_extractor.to(self.device)
+            self.enhancement_layers.to(self.device)
+            self.feature_extractor.eval()
+            self.enhancement_layers.eval()
             self.loaded = True
             logger.info("SuperRes model loaded successfully")
         except Exception as e:
@@ -80,66 +95,228 @@ class SuperResolutionModel(AIModel):
     def enhance(self, image: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
             try:
-                enhanced = self.model(image)
-                return enhanced
+                # Normalize input
+                normalized = self.normalize(image)
+
+                # Extract features
+                features = self.feature_extractor(normalized)
+
+                # Enhance features
+                enhanced = self.enhancement_layers(features)
+
+                # Professional-grade upscaling
+                enhanced = TF.interpolate(
+                    enhanced, size=image.shape[2:], mode="bicubic", align_corners=True
+                )
+
+                # Adaptive sharpening based on image content
+                edge_detect = (
+                    torch.tensor(
+                        [[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]], device=self.device
+                    ).view(1, 1, 3, 3)
+                    / 8
+                )
+                edge_detect = edge_detect.repeat(3, 1, 1, 1)
+
+                edges = TF.conv2d(enhanced, edge_detect, padding=1, groups=3)
+                edge_intensity = torch.mean(torch.abs(edges))
+
+                # Adjust sharpening strength based on edge intensity
+                sharpening_strength = torch.clamp(1.0 - edge_intensity * 2, 0.5, 0.8)
+
+                kernel = (
+                    torch.tensor(
+                        [[-1, -1, -1], [-1, 17, -1], [-1, -1, -1]], device=self.device
+                    ).view(1, 1, 3, 3)
+                    / 8
+                )
+                kernel = kernel.repeat(3, 1, 1, 1)
+
+                sharpened = TF.conv2d(enhanced, kernel, padding=1, groups=3)
+
+                # Adaptive blending
+                result = (
+                    1 - sharpening_strength
+                ) * image + sharpening_strength * sharpened
+
+                # Professional contrast enhancement
+                mean = torch.mean(result, dim=[2, 3], keepdim=True)
+                std = torch.std(result, dim=[2, 3], keepdim=True)
+                contrast_enhanced = mean + 1.2 * (result - mean) * (0.5 + std)
+
+                return torch.clamp(contrast_enhanced, 0, 1)
             except Exception as e:
                 logger.error(f"Error in SuperRes enhancement: {str(e)}")
-                return image  # Return original image on error
+                return image
 
 
 class DetailEnhancementModel(AIModel):
-    """Detail Enhancement Model"""
+    """Detail Enhancement Model with professional-grade improvements"""
 
     def __init__(self):
-        super().__init__("DetailEnhance", "Detail Enhancement")
+        super().__init__(
+            "DetailEnhance", "Professional Detail Enhancement with adaptive processing"
+        )
+        self.normalize = transforms.Normalize(
+            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
+        )
 
     def load(self):
-        # Simplified model for better performance
-        self.model = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            nn.ReLU(True),
-            nn.Conv2d(32, 32, kernel_size=3, padding=1),
-            nn.ReLU(True),
-            nn.Conv2d(32, 3, kernel_size=3, padding=1),
-            nn.Sigmoid(),
-        )
-        self.model.to(self.device)
-        self.model.eval()
-        self.loaded = True
+        try:
+            backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+            self.feature_extractor = nn.Sequential(*list(backbone.children())[:-2])
+
+            # Enhanced detail preservation
+            self.detail_enhance = nn.Sequential(
+                nn.Conv2d(2048, 1024, kernel_size=3, padding=1),
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(1024, 512, kernel_size=3, padding=1),
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(512, 256, kernel_size=3, padding=1),
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(256, 3, kernel_size=3, padding=1),
+                nn.Tanh(),
+            )
+
+            self.feature_extractor.to(self.device)
+            self.detail_enhance.to(self.device)
+            self.feature_extractor.eval()
+            self.detail_enhance.eval()
+            self.loaded = True
+
+        except Exception as e:
+            logger.error(f"Error loading Detail Enhancement model: {str(e)}")
+            raise
 
     def enhance(self, image: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
             try:
-                enhanced = self.model(image)
-                return enhanced
+                # Extract features
+                features = self.feature_extractor(self.normalize(image))
+
+                # Generate detail enhancement mask
+                detail_mask = self.detail_enhance(features)
+
+                # Professional-grade upscaling
+                detail_mask = TF.interpolate(
+                    detail_mask,
+                    size=image.shape[2:],
+                    mode="bicubic",
+                    align_corners=True,
+                )
+
+                # Adaptive detail enhancement
+                detail_strength = torch.mean(torch.abs(detail_mask))
+                enhancement_factor = torch.clamp(
+                    0.4 / (detail_strength + 1e-5), 0.2, 0.4
+                )
+
+                enhanced = image + enhancement_factor * detail_mask
+
+                # Professional local contrast enhancement
+                kernel_size = 7  # Increased kernel size for better local contrast
+                padding_size = kernel_size // 2
+
+                # Calculate local statistics
+                local_mean = TF.avg_pool2d(
+                    enhanced, kernel_size=kernel_size, stride=1, padding=padding_size
+                )
+                local_var = (
+                    TF.avg_pool2d(
+                        enhanced**2,
+                        kernel_size=kernel_size,
+                        stride=1,
+                        padding=padding_size,
+                    )
+                    - local_mean**2
+                )
+                local_std = torch.sqrt(torch.clamp(local_var, min=1e-6))
+
+                # Normalize local contrast
+                normalized = (enhanced - local_mean) / local_std
+
+                # Apply adaptive contrast enhancement
+                contrast_enhanced = local_mean + local_std * normalized * 1.15
+
+                return torch.clamp(contrast_enhanced, 0, 1)
             except Exception as e:
                 logger.error(f"Error in Detail enhancement: {str(e)}")
                 return image
 
 
 class ColorEnhancementModel(AIModel):
-    """Color Enhancement Model"""
+    """Color Enhancement Model with professional color processing"""
 
     def __init__(self):
-        super().__init__("ColorEnhance", "Color Enhancement")
+        super().__init__(
+            "ColorEnhance", "Professional Color Enhancement with natural preservation"
+        )
 
     def load(self):
-        # Simplified model for better performance
-        self.model = nn.Sequential(
-            nn.Conv2d(3, 32, kernel_size=3, padding=1),
-            nn.ReLU(True),
-            nn.Conv2d(32, 3, kernel_size=3, padding=1),
-            nn.Sigmoid(),
-        )
-        self.model.to(self.device)
-        self.model.eval()
-        self.loaded = True
+        try:
+            # Professional color processing layers
+            self.color_enhance = nn.Sequential(
+                nn.Conv2d(3, 64, kernel_size=3, padding=1),
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(64, 64, kernel_size=3, padding=1),
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(64, 32, kernel_size=3, padding=1),
+                nn.LeakyReLU(0.2, True),
+                nn.Conv2d(32, 3, kernel_size=3, padding=1),
+                nn.Sigmoid(),
+            )
+
+            # Initialize with improved weights
+            for m in self.color_enhance.modules():
+                if isinstance(m, nn.Conv2d):
+                    nn.init.kaiming_normal_(m.weight)
+                    if m.bias is not None:
+                        nn.init.zeros_(m.bias)
+
+            self.color_enhance.to(self.device)
+            self.color_enhance.eval()
+            self.loaded = True
+
+        except Exception as e:
+            logger.error(f"Error loading Color Enhancement model: {str(e)}")
+            raise
 
     def enhance(self, image: torch.Tensor) -> torch.Tensor:
         with torch.no_grad():
             try:
-                enhanced = self.model(image)
-                return enhanced
+                # Professional color enhancement
+                rgb_to_hsv = transforms.ColorJitter(
+                    brightness=0.25,  # Reduced for more natural look
+                    contrast=0.25,  # Reduced for more natural look
+                    saturation=0.35,  # Adjusted for better balance
+                )
+                enhanced_hsv = rgb_to_hsv(image)
+
+                # Apply color enhancement
+                enhanced_colors = self.color_enhance(enhanced_hsv)
+
+                # Adaptive color blending
+                color_diff = torch.abs(enhanced_colors - enhanced_hsv)
+                blend_factor = torch.clamp(
+                    0.3 / (torch.mean(color_diff) + 1e-5), 0.3, 0.5
+                )
+
+                result = (
+                    1 - blend_factor
+                ) * enhanced_hsv + blend_factor * enhanced_colors
+
+                # Natural saturation enhancement
+                luminance = (
+                    0.299 * result[:, 0] + 0.587 * result[:, 1] + 0.114 * result[:, 2]
+                )
+                luminance = luminance.unsqueeze(1).repeat(1, 3, 1, 1)
+
+                saturation_factor = torch.clamp(
+                    1.2 - torch.mean(torch.abs(result - luminance)), 0.8, 1.2
+                )
+                color_enhanced = luminance + saturation_factor * (result - luminance)
+
+                return torch.clamp(color_enhanced, 0, 1)
             except Exception as e:
                 logger.error(f"Error in Color enhancement: {str(e)}")
                 return image
@@ -255,9 +432,9 @@ class ImageEnhancer:
             if target_width <= 0:
                 raise ValueError("Target width must be positive")
 
-            # Use default models if none specified
+            # Use all models by default
             if not models:
-                models = ["superres"]  # Reduced to single model for better performance
+                models = ["superres", "detail", "color"]
 
             # Track enhancement details
             enhancement_details = {
@@ -268,7 +445,11 @@ class ImageEnhancer:
 
             start_time = time.time()
 
-            # Resize input image
+            # Convert to RGB if needed
+            if image.mode != "RGB":
+                image = image.convert("RGB")
+
+            # Resize input image with improved quality
             aspect_ratio = image.size[1] / image.size[0]
             intermediate_width = min(image.size[0], MAX_INTERMEDIATE_SIZE)
             intermediate_height = int(intermediate_width * aspect_ratio)
@@ -301,11 +482,11 @@ class ImageEnhancer:
 
             update_progress(0.9, "Finalizing enhancement...")
 
-            # Convert back to PIL Image
+            # Convert back to PIL Image with improved quality
             enhanced = enhanced.cpu().squeeze(0).clamp(0, 1)
             result_img = F.to_pil_image(enhanced)
 
-            # Final resize to target width
+            # Final resize with high quality
             if result_img.size[0] != target_width:
                 result_img = result_img.resize(
                     (target_width, int(target_width * aspect_ratio)),
