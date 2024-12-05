@@ -42,13 +42,13 @@ async def read_root():
 
 
 @app.post("/enhance")
-async def enhance_image(request: Request, target_width: int = 5120):
+async def enhance_image(request: Request, target_width: int = 7680):
     """
     Enhance an image
 
     Args:
         request: Request object containing the image file in body
-        target_width: Desired width of output image
+        target_width: Desired width of output image (default: 7680, max: 7680)
 
     Returns:
         Enhanced image as PNG
@@ -71,6 +71,10 @@ async def enhance_image(request: Request, target_width: int = 5120):
         if target_width <= 0:
             logger.error(f"Invalid target width: {target_width}")
             raise HTTPException(status_code=400, detail="Target width must be positive")
+
+        # Enforce maximum target width
+        target_width = min(target_width, 7680)
+        logger.info(f"Using target width: {target_width} (max: 7680)")
 
         # Load and validate image
         logger.info("Validating image...")

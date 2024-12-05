@@ -61,9 +61,9 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Constants
-MAX_TARGET_WIDTH = 1920  # Maximum allowed target width
-MAX_PROCESSING_TIME = 10  # Maximum processing time in seconds
-MAX_INTERMEDIATE_SIZE = 320  # Maximum size for intermediate processing
+MAX_TARGET_WIDTH = 7680  # Updated maximum allowed target width to support 8K resolution
+MAX_PROCESSING_TIME = 30  # Increased processing time for larger images
+MAX_INTERMEDIATE_SIZE = 640  # Increased intermediate size for better quality
 
 
 class TimeoutError(Exception):
@@ -153,7 +153,7 @@ class ImageEnhancer:
 
         Args:
             image: Input PIL Image
-            target_width: Desired width of output image (max 1920)
+            target_width: Desired width of output image (max 7680)
 
         Returns:
             Enhanced PIL Image at target width
@@ -189,9 +189,9 @@ class ImageEnhancer:
                 f"Processing at intermediate size: {(intermediate_width, intermediate_height)}"
             )
 
-            # Initial resize using faster resampling
+            # Initial resize using Lanczos resampling for better quality
             image = image.resize(
-                (intermediate_width, intermediate_height), Image.Resampling.BILINEAR
+                (intermediate_width, intermediate_height), Image.Resampling.LANCZOS
             )
 
             with time_limit(MAX_PROCESSING_TIME):
@@ -217,12 +217,12 @@ class ImageEnhancer:
                 enhanced = enhanced.cpu().squeeze(0).clamp(0, 1)
                 result_img = F.to_pil_image(enhanced)
 
-                # Final resize to target width using faster resampling
+                # Final resize to target width using Lanczos resampling for better quality
                 if result_img.size[0] != target_width:
                     logger.info(f"Resizing to target width: {target_width}")
                     result_img = result_img.resize(
                         (target_width, int(target_width * aspect_ratio)),
-                        Image.Resampling.BILINEAR,
+                        Image.Resampling.LANCZOS,
                     )
 
             process_time = time.time() - start_time
