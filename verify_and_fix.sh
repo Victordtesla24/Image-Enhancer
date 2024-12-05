@@ -6,97 +6,87 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Function to check and fix Python environment
-check_python_env() {
-    echo -e "${YELLOW}Verifying Python environment...${NC}"
-    
-    # Activate virtual environment if it exists
-    if [ -d "venv" ]; then
-        source venv/bin/activate
-    else
-        echo -e "${RED}Virtual environment not found. Creating...${NC}"
-        python3 -m venv venv
-        source venv/bin/activate
-    fi
+echo -e "${GREEN}Starting verification and fixes...${NC}"
 
-    # Update pip and dependencies
-    pip install --upgrade pip
-    if [ -f "requirements.txt" ]; then
-        pip install -r requirements.txt
-    else
-        echo -e "${RED}requirements.txt not found. Creating...${NC}"
-        pip freeze > requirements.txt
-    fi
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
 }
 
-# Function to verify and fix project structure
-verify_project_structure() {
-    echo -e "${YELLOW}Verifying project structure...${NC}"
-    
-    # Create missing directories
-    directories=("src/components" "src/utils" "tests/unit" "tests/integration" "data" "models" "docs")
-    for dir in "${directories[@]}"; do
-        if [ ! -d "$dir" ]; then
-            echo -e "${RED}Creating missing directory: $dir${NC}"
-            mkdir -p "$dir"
-        fi
-    done
+# Activate virtual environment
+if [ -d "venv" ]; then
+    source venv/bin/activate
+else
+    echo -e "${RED}Virtual environment not found. Running proj_setup.sh...${NC}"
+    ./proj_setup.sh
+    exit 1
+fi
 
-    # Verify __init__.py files
-    init_files=("src/__init__.py" "src/components/__init__.py" "src/utils/__init__.py" "tests/__init__.py")
-    for file in "${init_files[@]}"; do
-        if [ ! -f "$file" ]; then
-            echo -e "${RED}Creating missing file: $file${NC}"
-            touch "$file"
-        fi
-    done
-}
+# Update pip and packages
+echo -e "${YELLOW}Updating pip and packages...${NC}"
+pip install --upgrade pip
 
-# Function to verify and fix code style
-fix_code_style() {
-    echo -e "${YELLOW}Fixing code style...${NC}"
-    
-    # Run black formatter
-    black src/ tests/ || true
-    
-    # Run isort
-    isort src/ tests/ || true
-    
-    # Run pylint
+# Ensure PyTorch and super-image are installed correctly
+if ! pip show torch > /dev/null || ! pip show super-image > /dev/null; then
+    echo -e "${YELLOW}Installing PyTorch and super-image...${NC}"
+    pip install torch torchvision --find-links https://download.pytorch.org/whl/torch_stable.html
+    pip uninstall -y huggingface-hub super-image
+    pip install huggingface-hub==0.8.1
+    pip install super-image==0.1.7
+fi
+
+pip install -r requirements.txt
+
+# Fix code formatting
+echo -e "${YELLOW}Fixing code formatting...${NC}"
+if command_exists black; then
+    black src/ tests/
+else
+    pip install black
+    black src/ tests/
+fi
+
+# Run linting
+echo -e "${YELLOW}Running linting...${NC}"
+if command_exists pylint; then
     pylint src/ tests/ || true
-}
+else
+    pip install pylint
+    pylint src/ tests/ || true
+fi
 
-# Function to verify and fix Git configuration
-verify_git_config() {
-    echo -e "${YELLOW}Verifying Git configuration...${NC}"
-    
-    if [ ! -d ".git" ]; then
-        echo -e "${RED}Git repository not initialized. Initializing...${NC}"
-        git init
+# Verify directory structure
+echo -e "${YELLOW}Verifying directory structure...${NC}"
+directories=("src" "src/components" "src/utils" "tests" "config" "assets")
+for dir in "${directories[@]}"; do
+    if [ ! -d "$dir" ]; then
+        mkdir -p "$dir"
+        echo -e "${GREEN}Created missing directory: $dir${NC}"
     fi
+done
 
-    if [ ! -f ".gitignore" ]; then
-        echo -e "${RED}Creating .gitignore file...${NC}"
-        cat > .gitignore << EOL
-venv/
-__pycache__/
-*.pyc
-.env
-.coverage
-.pytest_cache/
-*.log
-.DS_Store
-EOL
+# Verify init files
+init_files=("src/__init__.py" "src/components/__init__.py" "src/utils/__init__.py" "tests/__init__.py")
+for file in "${init_files[@]}"; do
+    if [ ! -f "$file" ]; then
+        touch "$file"
+        echo -e "${GREEN}Created missing file: $file${NC}"
     fi
-}
+done
 
-# Function to verify Streamlit configuration
-verify_streamlit_config() {
-    echo -e "${YELLOW}Verifying Streamlit configuration...${NC}"
-    
-    if [ ! -d ".streamlit" ]; then
-        mkdir .streamlit
-        cat > .streamlit/config.toml << EOL
+# Remove redundant files
+echo -e "${YELLOW}Cleaning up redundant files...${NC}"
+find . -type f -name "*.pyc" -delete
+find . -type d -name "__pycache__" -exec rm -r {} +
+
+# Update requirements.txt
+echo -e "${YELLOW}Updating requirements.txt...${NC}"
+pip freeze > requirements.txt
+
+# Verify Streamlit configuration
+if [ ! -d ".streamlit" ]; then
+    mkdir .streamlit
+    cat > .streamlit/config.toml << EOL
 [theme]
 primaryColor = "#F63366"
 backgroundColor = "#FFFFFF"
@@ -104,37 +94,6 @@ secondaryBackgroundColor = "#F0F2F6"
 textColor = "#262730"
 font = "sans serif"
 EOL
-    fi
-}
+fi
 
-# Function to verify and fix tests
-verify_tests() {
-    echo -e "${YELLOW}Verifying test configuration...${NC}"
-    
-    if [ ! -f "pytest.ini" ]; then
-        echo -e "${RED}Creating pytest.ini...${NC}"
-        cat > pytest.ini << EOL
-[pytest]
-testpaths = tests
-python_files = test_*.py
-python_functions = test_*
-addopts = --verbose --cov=src
-EOL
-    fi
-}
-
-# Main execution
-main() {
-    echo -e "${GREEN}Starting verification and fix process...${NC}"
-    
-    check_python_env
-    verify_project_structure
-    fix_code_style
-    verify_git_config
-    verify_streamlit_config
-    verify_tests
-    
-    echo -e "${GREEN}Verification and fix process completed!${NC}"
-}
-
-main 
+echo -e "${GREEN}Verification and fixes completed successfully!${NC}" 

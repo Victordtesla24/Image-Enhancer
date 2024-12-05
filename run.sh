@@ -6,69 +6,78 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-# Function to check environment
-check_environment() {
-    echo -e "${YELLOW}Checking environment...${NC}"
+# Function to check if command exists
+command_exists() {
+    command -v "$1" >/dev/null 2>&1
+}
+
+# Cleanup function
+cleanup() {
+    echo -e "\n${YELLOW}Cleaning up...${NC}"
+    deactivate 2>/dev/null
+    exit 1
+}
+trap cleanup INT TERM
+
+# Configure git branch
+BRANCH=${BRANCH:-main}
+
+echo -e "${GREEN}Starting application...${NC}"
+
+# Check required tools
+for tool in python git streamlit pytest; do
+    if ! command_exists "$tool"; then
+        echo -e "${RED}Error: $tool is not installed${NC}"
+        exit 1
+    fi
+done
+
+# Check if verify_and_fix.sh is executable
+if [ ! -x "./verify_and_fix.sh" ]; then
+    echo -e "${YELLOW}Making verify_and_fix.sh executable...${NC}"
+    chmod +x ./verify_and_fix.sh
+fi
+
+# First, run verify_and_fix.sh
+echo -e "${YELLOW}Running verification and fixes...${NC}"
+./verify_and_fix.sh
+
+# Check and activate virtual environment
+if [ ! -d "venv" ]; then
+    echo -e "${RED}Virtual environment not found${NC}"
+    exit 1
+fi
+
+if ! source venv/bin/activate 2>/dev/null; then
+    echo -e "${RED}Failed to activate virtual environment${NC}"
+    exit 1
+fi
+
+# Run tests
+echo -e "${YELLOW}Running tests...${NC}"
+pytest
+
+# If tests pass, commit changes
+if [ $? -eq 0 ]; then
+    echo -e "${YELLOW}Tests passed. Committing changes...${NC}"
     
-    # Run verify_and_fix.sh if it exists
-    if [ -f "verify_and_fix.sh" ]; then
-        bash verify_and_fix.sh
+    # Check if it's a git repository
+    if ! git rev-parse --git-dir > /dev/null 2>&1; then
+        echo -e "${YELLOW}Not a git repository - skipping git operations${NC}"
     else
-        echo -e "${RED}verify_and_fix.sh not found!${NC}"
-        exit 1
-    fi
-}
-
-# Function to run tests
-run_tests() {
-    echo -e "${YELLOW}Running tests...${NC}"
-    
-    # Activate virtual environment
-    source venv/bin/activate
-    
-    # Run pytest with coverage
-    pytest --cov=src tests/
-    
-    if [ $? -ne 0 ]; then
-        echo -e "${RED}Tests failed! Please fix the issues before running the app.${NC}"
-        exit 1
-    fi
-}
-
-# Function to commit changes to Git
-commit_changes() {
-    echo -e "${YELLOW}Committing changes to Git...${NC}"
-    
-    # Check if there are any changes
-    if [ -n "$(git status --porcelain)" ]; then
         git add .
         read -p "Enter commit message: " commit_message
         git commit -m "$commit_message"
-        git push origin main || echo -e "${RED}Failed to push to remote repository${NC}"
-    else
-        echo -e "${GREEN}No changes to commit${NC}"
+        git push origin $BRANCH || echo -e "${YELLOW}No remote repository configured${NC}"
     fi
-}
-
-# Function to run the Streamlit app
-run_app() {
+    
+    # Run the Streamlit app
     echo -e "${GREEN}Starting Streamlit app...${NC}"
-    
-    # Activate virtual environment
-    source venv/bin/activate
-    
-    # Run the app
-    streamlit run src/app.py
-}
-
-# Main execution
-main() {
-    echo -e "${GREEN}Starting application...${NC}"
-    
-    check_environment
-    run_tests
-    commit_changes
-    run_app
-}
-
-main 
+    if ! streamlit run src/app.py; then
+        echo -e "${RED}Failed to start Streamlit app${NC}"
+        exit 1
+    fi
+else
+    echo -e "${RED}Tests failed. Please fix the issues before running the app.${NC}"
+    exit 1
+fi
