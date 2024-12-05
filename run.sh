@@ -19,13 +19,14 @@ cleanup() {
 }
 trap cleanup INT TERM
 
-# Configure git branch
-BRANCH=${BRANCH:-main}
+# Configure git settings
+REPO_URL="https://github.com/Victordtesla24/Image-Enhancer.git"
+BRANCH="main"
 
 echo -e "${GREEN}Starting application...${NC}"
 
 # Check required tools
-for tool in python git pytest uvicorn; do
+for tool in python git streamlit; do
     if ! command_exists "$tool"; then
         echo -e "${RED}Error: $tool is not installed${NC}"
         exit 1
@@ -57,25 +58,46 @@ fi
 echo -e "${YELLOW}Running tests...${NC}"
 pytest
 
+# Git repository verification and setup
+if ! git rev-parse --git-dir > /dev/null 2>&1; then
+    echo -e "${YELLOW}Initializing git repository...${NC}"
+    git init
+    git remote add origin $REPO_URL
+else
+    # Verify remote URL
+    CURRENT_URL=$(git config --get remote.origin.url)
+    if [ "$CURRENT_URL" != "$REPO_URL" ]; then
+        echo -e "${YELLOW}Updating remote URL...${NC}"
+        git remote set-url origin $REPO_URL || git remote add origin $REPO_URL
+    fi
+fi
+
+# Ensure on main branch
+CURRENT_BRANCH=$(git rev-parse --abbrev-ref HEAD 2>/dev/null)
+if [ "$CURRENT_BRANCH" != "$BRANCH" ]; then
+    echo -e "${YELLOW}Switching to $BRANCH branch...${NC}"
+    git checkout $BRANCH 2>/dev/null || git checkout -b $BRANCH
+fi
+
 # If tests pass, commit changes
 if [ $? -eq 0 ]; then
-    echo -e "${YELLOW}Tests passed. Committing changes...${NC}"
+    echo -e "${YELLOW}Tests passed. Checking for changes...${NC}"
     
-    # Check if it's a git repository
-    if ! git rev-parse --git-dir > /dev/null 2>&1; then
-        echo -e "${YELLOW}Not a git repository - skipping git operations${NC}"
-    else
+    if [ -n "$(git status --porcelain)" ]; then
+        echo -e "${YELLOW}Changes detected. Committing...${NC}"
         git add .
         read -p "Enter commit message: " commit_message
         git commit -m "$commit_message"
-        git push origin $BRANCH || echo -e "${YELLOW}No remote repository configured${NC}"
+        git push origin $BRANCH || echo -e "${YELLOW}Failed to push to remote repository${NC}"
+    else
+        echo -e "${GREEN}No changes to commit${NC}"
     fi
     
-    # Run the FastAPI app with uvicorn
-    echo -e "${GREEN}Starting FastAPI app...${NC}"
+    # Run the Streamlit app
+    echo -e "${GREEN}Starting Streamlit app...${NC}"
     export PYTHONPATH=$PYTHONPATH:$(pwd)
-    if ! uvicorn src.app:app --reload --host 0.0.0.0 --port 8000; then
-        echo -e "${RED}Failed to start FastAPI app${NC}"
+    if ! streamlit run streamlit_app.py; then
+        echo -e "${RED}Failed to start Streamlit app${NC}"
         exit 1
     fi
 else

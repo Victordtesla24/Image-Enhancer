@@ -35,15 +35,21 @@ if ! pip show torch > /dev/null || ! pip show super-image > /dev/null; then
     pip install super-image==0.1.7
 fi
 
+# Install Streamlit if not present
+if ! pip show streamlit > /dev/null; then
+    echo -e "${YELLOW}Installing Streamlit...${NC}"
+    pip install streamlit
+fi
+
 pip install -r requirements.txt
 
 # Fix code formatting
 echo -e "${YELLOW}Fixing code formatting...${NC}"
 if command_exists black; then
-    black src/ tests/
+    black .
 else
     pip install black
-    black src/ tests/
+    black .
 fi
 
 # Run linting
@@ -57,13 +63,51 @@ fi
 
 # Verify directory structure
 echo -e "${YELLOW}Verifying directory structure...${NC}"
-directories=("src" "src/components" "src/utils" "tests" "config" "assets")
+directories=("src" "tests" "assets" "models")
 for dir in "${directories[@]}"; do
     if [ ! -d "$dir" ]; then
         mkdir -p "$dir"
         echo -e "${GREEN}Created missing directory: $dir${NC}"
     fi
 done
+
+# Create README.md if it doesn't exist
+if [ ! -f "README.md" ]; then
+    echo -e "${YELLOW}Creating README.md...${NC}"
+    cat > README.md << EOL
+# Image Enhancer
+
+A Streamlit application for enhancing image quality using deep learning.
+
+## Features
+- Upload images
+- Enhance image quality
+- Download enhanced images
+
+## Setup
+1. Clone the repository
+2. Run \`./proj_setup.sh\` to set up the virtual environment
+3. Run \`./run.sh\` to start the application
+
+## Requirements
+- Python 3.7+
+- See requirements.txt for full dependencies
+EOL
+fi
+
+# Move app.py to streamlit_app.py if needed
+if [ -f "src/app.py" ] && [ ! -f "streamlit_app.py" ]; then
+    echo -e "${YELLOW}Moving app.py to streamlit_app.py...${NC}"
+    cp src/app.py streamlit_app.py
+    # Update imports in streamlit_app.py
+    sed -i '' 's/from src\./from /g' streamlit_app.py
+fi
+
+# Remove FastAPI specific directories
+if [ -d "src/static" ]; then
+    echo -e "${YELLOW}Removing FastAPI specific directories...${NC}"
+    rm -rf src/static
+fi
 
 # Verify init files
 init_files=("src/__init__.py" "src/components/__init__.py" "src/utils/__init__.py" "tests/__init__.py")
@@ -83,7 +127,7 @@ find . -type d -name "__pycache__" -exec rm -r {} +
 echo -e "${YELLOW}Updating requirements.txt...${NC}"
 pip freeze > requirements.txt
 
-# Verify Streamlit configuration
+# Create .streamlit directory and config
 if [ ! -d ".streamlit" ]; then
     mkdir .streamlit
     cat > .streamlit/config.toml << EOL
@@ -96,4 +140,4 @@ font = "sans serif"
 EOL
 fi
 
-echo -e "${GREEN}Verification and fixes completed successfully!${NC}" 
+echo -e "${GREEN}Verification and fixes completed successfully!${NC}"
