@@ -25,7 +25,7 @@ BRANCH=${BRANCH:-main}
 echo -e "${GREEN}Starting application...${NC}"
 
 # Check required tools
-for tool in python git streamlit pytest; do
+for tool in python git pytest uvicorn; do
     if ! command_exists "$tool"; then
         echo -e "${RED}Error: $tool is not installed${NC}"
         exit 1
@@ -71,11 +71,11 @@ if [ $? -eq 0 ]; then
         git push origin $BRANCH || echo -e "${YELLOW}No remote repository configured${NC}"
     fi
     
-    # Run the Streamlit app with PYTHONPATH set
-    echo -e "${GREEN}Starting Streamlit app...${NC}"
+    # Run the FastAPI app with uvicorn
+    echo -e "${GREEN}Starting FastAPI app...${NC}"
     export PYTHONPATH=$PYTHONPATH:$(pwd)
-    if ! streamlit run src/app.py; then
-        echo -e "${RED}Failed to start Streamlit app${NC}"
+    if ! uvicorn src.app:app --reload --host 0.0.0.0 --port 8000; then
+        echo -e "${RED}Failed to start FastAPI app${NC}"
         exit 1
     fi
 else
