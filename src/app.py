@@ -7,10 +7,12 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from src.components.file_uploader import FileUploader
 from src.utils.image_processor import ImageEnhancer
+from src.config.settings import DEFAULT_TARGET_WIDTH, MAX_FILE_SIZE
 import io
 import logging
 from PIL import Image
 import traceback
+import psutil
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -42,13 +44,13 @@ async def read_root():
 
 
 @app.post("/enhance")
-async def enhance_image(request: Request, target_width: int = 7680):
+async def enhance_image(request: Request, target_width: int = DEFAULT_TARGET_WIDTH):
     """
     Enhance an image
 
     Args:
         request: Request object containing the image file in body
-        target_width: Desired width of output image (default: 7680, max: 7680)
+        target_width: Desired width of output image (default: 5120, aligned with settings)
 
     Returns:
         Enhanced image as PNG
@@ -57,11 +59,27 @@ async def enhance_image(request: Request, target_width: int = 7680):
         HTTPException: If input is invalid or processing fails
     """
     try:
+        # Check system resources
+        memory = psutil.virtual_memory()
+        if memory.percent > 90:  # If memory usage is above 90%
+            raise HTTPException(
+                status_code=503,
+                detail="System resources are currently limited. Please try again later.",
+            )
+
         # Read raw body
         logger.info("Reading request body...")
         body = await request.body()
         if not body:
             raise HTTPException(status_code=400, detail="No image data provided")
+
+        # Check file size
+        file_size_mb = len(body) / (1024 * 1024)
+        if file_size_mb > MAX_FILE_SIZE:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File size exceeds maximum limit of {MAX_FILE_SIZE}MB",
+            )
 
         logger.info(
             f"Received enhancement request - Content Length: {len(body)}, Target Width: {target_width}"
@@ -73,8 +91,8 @@ async def enhance_image(request: Request, target_width: int = 7680):
             raise HTTPException(status_code=400, detail="Target width must be positive")
 
         # Enforce maximum target width
-        target_width = min(target_width, 7680)
-        logger.info(f"Using target width: {target_width} (max: 7680)")
+        target_width = min(target_width, DEFAULT_TARGET_WIDTH)
+        logger.info(f"Using target width: {target_width} (max: {DEFAULT_TARGET_WIDTH})")
 
         # Load and validate image
         logger.info("Validating image...")
@@ -83,8 +101,20 @@ async def enhance_image(request: Request, target_width: int = 7680):
             image.verify()  # Verify it's actually an image
             # Re-open because verify() closes the file
             image = Image.open(io.BytesIO(body))
+
+            # Check image dimensions
+            max_dimension = max(image.size)
+            if max_dimension > 10000:  # Arbitrary limit to prevent huge images
+                raise ValueError("Image dimensions too large")
+
             logger.info(
                 f"Image validated successfully - Size: {image.size}, Mode: {image.mode}"
+            )
+        except ValueError as ve:
+            logger.error(f"Image validation failed: {str(ve)}")
+            raise HTTPException(
+                status_code=400,
+                detail="Image dimensions too large. Please use an image with maximum dimension under 10000 pixels.",
             )
         except Exception as e:
             logger.error(f"Image validation failed: {str(e)}\n{traceback.format_exc()}")
@@ -107,7 +137,7 @@ async def enhance_image(request: Request, target_width: int = 7680):
             if "out of memory" in str(e).lower():
                 raise HTTPException(
                     status_code=507,
-                    detail="Insufficient memory to process image. Try reducing target width.",
+                    detail="Insufficient memory to process image. Try reducing target width or using a smaller image.",
                 )
             raise HTTPException(status_code=500, detail=f"Enhancement failed: {str(e)}")
         except Exception as e:
@@ -116,11 +146,16 @@ async def enhance_image(request: Request, target_width: int = 7680):
             )
             raise HTTPException(status_code=500, detail=f"Enhancement failed: {str(e)}")
 
-        # Convert to bytes
+        # Convert to bytes with optimized settings
         logger.info("Converting enhanced image to PNG...")
         try:
             img_byte_arr = io.BytesIO()
-            enhanced_image.save(img_byte_arr, format="PNG")
+            enhanced_image.save(
+                img_byte_arr,
+                format="PNG",
+                optimize=True,
+                quality=95,  # Slightly reduced quality for better compression
+            )
             img_byte_arr.seek(0)
             result = img_byte_arr.getvalue()
             logger.info(f"Conversion complete - Output size: {len(result)} bytes")
@@ -131,7 +166,11 @@ async def enhance_image(request: Request, target_width: int = 7680):
             )
 
         logger.info("Enhancement process completed successfully")
-        return Response(content=result, media_type="image/png")
+        return Response(
+            content=result,
+            media_type="image/png",
+            headers={"Content-Disposition": "attachment; filename=enhanced_image.png"},
+        )
 
     except HTTPException:
         raise
