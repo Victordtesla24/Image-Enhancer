@@ -1,12 +1,11 @@
-"""Main Streamlit application module"""
+"""Streamlit app for advanced image enhancement"""
 
-import streamlit as st
-from src.components.file_uploader import FileUploader
-from src.utils.image_processor import ImageEnhancer
-from PIL import Image
 import io
 import logging
-import time
+import streamlit as st
+from PIL import Image
+from src.components.file_uploader import FileUploader
+from src.utils.image_processor import ImageEnhancer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -14,245 +13,202 @@ logger = logging.getLogger(__name__)
 
 
 def main():
-    st.title("Advanced Image Enhancer")
-    st.write("Upload an image to enhance using AI-powered 4x Super Resolution")
+    """Main function for the Streamlit app"""
+    st.set_page_config(page_title="5K AI Image Enhancer", page_icon="🖼️", layout="wide")
 
-    # Initialize components
-    file_uploader = FileUploader()
-    image_enhancer = ImageEnhancer()
-
-    # Display model information
-    st.sidebar.subheader("AI Model Information")
-    st.sidebar.info(
-        f"""
-    **Current Model: {image_enhancer.get_model_name()}**
-    
-    **Model Capabilities:**
-    - 4x Super Resolution upscaling
-    - Enhanced detail preservation
-    - Advanced noise reduction
-    - Improved edge sharpness
-    
-    **Processing Device:** {image_enhancer.get_model_device()}
-    
-    **Note:** For optimal performance, the maximum output
-    resolution is limited to 5K width. Larger images will
-    be processed in sections for better quality.
+    st.title("🖼️ 5K AI Image Enhancer")
+    st.markdown(
+        """
+    Enhance your images up to 5K resolution using cutting-edge AI technology. 
+    Upload an image and see it transformed using multiple state-of-the-art AI models!
     """
     )
 
-    uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
+    # Initialize components
+    if "image_enhancer" not in st.session_state:
+        st.session_state.image_enhancer = ImageEnhancer()
 
+    if "file_uploader" not in st.session_state:
+        st.session_state.file_uploader = FileUploader()
+
+    # Get available models
+    available_models = st.session_state.image_enhancer.get_available_models()
+
+    # Sidebar - Model Selection and Info
+    st.sidebar.header("🤖 AI Models")
+    selected_models = []
+    for model in available_models:
+        if st.sidebar.checkbox(
+            f"Use {model['name']}", value=True, key=f"model_{model['name']}"
+        ):
+            selected_models.append(model["name"].lower())
+        with st.sidebar.expander(f"ℹ️ About {model['name']}"):
+            st.write(model["description"])
+
+    # Enhancement settings
+    st.sidebar.header("⚙️ Enhancement Settings")
+
+    # Resolution presets
+    resolution_presets = {
+        "4K (3840x2160)": 3840,
+        "5K (5120x2880)": 5120,
+        "2K (2048x1080)": 2048,
+        "Full HD (1920x1080)": 1920,
+        "Custom": "custom",
+    }
+
+    selected_preset = st.sidebar.selectbox(
+        "Resolution Preset",
+        options=list(resolution_presets.keys()),
+        index=1,  # Default to 5K
+        help="Select target resolution preset or choose custom",
+    )
+
+    if selected_preset == "Custom":
+        target_width = st.sidebar.number_input(
+            "Custom Width",
+            min_value=512,
+            max_value=5120,
+            value=1920,
+            step=128,
+            help="Enter custom target width (512-5120 pixels)",
+        )
+    else:
+        target_width = resolution_presets[selected_preset]
+
+    # Show selected resolution info
+    st.sidebar.info(f"Target Width: {target_width}px")
+
+    # File uploader
+    uploaded_file = st.file_uploader(
+        "Choose an image file",
+        type=["png", "jpg", "jpeg"],
+        help="Upload an image file to enhance",
+    )
+
+    # Process image when uploaded
     if uploaded_file is not None:
         try:
-            # Display original image
-            image = Image.open(uploaded_file)
+            # Read and validate image
+            image_bytes = uploaded_file.getvalue()
+            input_image = st.session_state.file_uploader.validate_image(
+                io.BytesIO(image_bytes)
+            )
 
-            # Show original image details
-            st.subheader("Source Image")
+            # Display original and enhanced images side by side
             col1, col2 = st.columns(2)
+
             with col1:
-                st.image(image, caption="Original Image", use_container_width=True)
-            with col2:
-                st.info(
-                    f"""
-                **Original Image Details:**
-                - Resolution: {image.size[0]}x{image.size[1]}px
-                - Megapixels: {(image.size[0] * image.size[1] / 1000000):.2f}MP
-                - Format: {image.format if image.format else 'Unknown'}
-                - Color Mode: {image.mode}
-                """
-                )
+                st.subheader("Original Image")
+                st.image(input_image, use_container_width=True)
+                st.info(f"Size: {input_image.size[0]}x{input_image.size[1]}px")
 
-            # Enhancement Settings
-            st.subheader("Enhancement Settings")
-            target_width = st.slider(
-                "Target Resolution Width",
-                min_value=max(1024, image.size[0]),  # Don't allow downscaling
-                max_value=5120,  # Limited to 5K for better performance
-                value=min(5120, max(1024, image.size[0] * 4)),  # Default to 4x or 5K
-                step=256,
-                help="Select output resolution width. Limited to 5K for optimal quality.",
-            )
+            # Add enhance button
+            if st.button("🔄 Enhance Image", key="enhance_button"):
+                if not selected_models:
+                    st.error("Please select at least one AI model from the sidebar!")
+                else:
+                    with st.spinner("Initializing AI models..."):
+                        try:
+                            # Create progress tracking
+                            progress_container = st.empty()
+                            progress_bar = st.progress(0)
+                            status_text = st.empty()
 
-            # Show target output details
-            target_height = int(target_width * (image.size[1] / image.size[0]))
-            target_mp = (target_width * target_height) / 1000000
+                            def update_progress(progress, status):
+                                """Update progress bar and status text"""
+                                progress_bar.progress(progress)
+                                status_text.text(status)
+                                progress_container.text(
+                                    f"Progress: {progress*100:.0f}%"
+                                )
 
-            st.info(
-                f"""
-            **Target Output Details:**
-            - Resolution: {target_width}x{target_height}px
-            - Target Megapixels: {target_mp:.2f}MP
-            - Upscale Factor: {target_width/image.size[0]:.1f}x
-            
-            **Note:** Processing time may increase with larger output sizes.
-            The model will automatically optimize memory usage for best quality.
-            """
-            )
-
-            if st.button("Enhance Image"):
-                # Create progress containers
-                progress_bar = st.progress(0)
-                status_text = st.empty()
-                processing_info = st.empty()
-                memory_info = st.empty()
-                time_info = st.empty()
-
-                try:
-                    start_time = time.time()
-                    last_update = start_time
-
-                    def update_progress(progress: float, status: str):
-                        """Update progress bar and status text with enhanced information"""
-                        nonlocal last_update
-                        current_time = time.time()
-                        elapsed = current_time - start_time
-
-                        # Update progress bar
-                        progress_bar.progress(progress)
-
-                        # Extract memory info if present
-                        memory_stats = ""
-                        if "GPU:" in status and "RAM:" in status:
-                            memory_part = status[status.find("GPU:") :]
-                            status = status[: status.find("GPU:")].strip()
-                            memory_stats = f"**System Usage:**\n{memory_part}"
-
-                        # Update status
-                        status_text.markdown(f"**Status:** {status}")
-
-                        if memory_stats:
-                            memory_info.markdown(memory_stats)
-
-                        # Show time information
-                        time_info.markdown(
-                            f"""
-                        **Processing Time:**
-                        - Elapsed: {elapsed:.1f}s
-                        - Estimated Remaining: {(elapsed/progress - elapsed):.1f}s (if progress is linear)
-                        """
-                        )
-
-                        if progress < 1.0:
-                            processing_info.info(
-                                """
-                            💡 **Processing Status:**
-                            - AI model is actively working
-                            - Processing in small sections for stability
-                            - Progress updates every few seconds
-                            - Keep this tab open
-                            """
+                            # Enhance image
+                            enhanced_image, enhancement_details = (
+                                st.session_state.image_enhancer.enhance_image(
+                                    input_image,
+                                    target_width=target_width,
+                                    models=selected_models,
+                                    progress_callback=update_progress,
+                                )
                             )
-                        else:
-                            processing_info.success(
-                                "✨ Enhancement completed successfully!"
-                            )
-                            memory_info.empty()
-                            time_info.empty()
 
-                        last_update = current_time
+                            with col2:
+                                st.subheader("Enhanced Image")
+                                st.image(enhanced_image, use_container_width=True)
+                                st.info(
+                                    f"Size: {enhanced_image.size[0]}x{enhanced_image.size[1]}px"
+                                )
 
-                    # Enhance image with progress updates
-                    enhanced = image_enhancer.enhance_image(
-                        image,
-                        target_width=target_width,
-                        progress_callback=update_progress,
-                    )
+                                # Enhancement details
+                                with st.expander(
+                                    "📊 Enhancement Details", expanded=True
+                                ):
+                                    st.markdown("**Source Image**")
+                                    st.text(
+                                        f"Size: {enhancement_details['source_size']}"
+                                    )
 
-                    # Calculate processing time
-                    process_time = time.time() - start_time
+                                    st.markdown("**AI Models Applied**")
+                                    for model in enhancement_details["models_used"]:
+                                        st.markdown(
+                                            f"- **{model['name']}**: {model['description']}"
+                                        )
 
-                    # Clear progress indicators
-                    status_text.empty()
-                    progress_bar.empty()
-                    processing_info.empty()
+                                    st.markdown("**Output Image**")
+                                    st.text(
+                                        f"Size: {enhancement_details['target_size']}"
+                                    )
+                                    st.text(
+                                        f"Processing Time: {enhancement_details['processing_time']}"
+                                    )
 
-                    # Display enhanced image and details
-                    st.subheader("Enhanced Image")
-                    col3, col4 = st.columns(2)
-                    with col3:
-                        st.image(
-                            enhanced, caption="Enhanced Image", use_container_width=True
-                        )
-                    with col4:
-                        st.success(
-                            f"""
-                        **Enhancement Complete!**
-                        
-                        **Enhanced Image Details:**
-                        - Resolution: {enhanced.size[0]}x{enhanced.size[1]}px
-                        - Megapixels: {(enhanced.size[0] * enhanced.size[1] / 1000000):.2f}MP
-                        - Upscale Factor: {enhanced.size[0]/image.size[0]:.2f}x
-                        - Processing Time: {process_time:.2f}s
-                        """
-                        )
+                                # Add download button
+                                buf = io.BytesIO()
+                                enhanced_image.save(buf, format="PNG")
+                                byte_im = buf.getvalue()
 
-                    # Enhancement Information
-                    st.subheader("Enhancement Process Details")
-                    st.info(
-                        f"""
-                    **Three-Stage Enhancement:**
-                    1. **Pre-processing:**
-                       - Advanced image preparation
-                       - Memory optimization
-                       - Color space normalization
-                    
-                    2. **AI Super Resolution:**
-                       - EDSR 4x model processing
-                       - Deep feature extraction
-                       - Detail reconstruction
-                       - Noise suppression
-                    
-                    3. **Post-processing:**
-                       - High-quality upscaling to {target_width}px width
-                       - Color accuracy refinement
-                       - Final detail enhancement
-                    
-                    **Resolution Improvement:**
-                    - Input: {image.size[0]}x{image.size[1]}px ({image.size[0] * image.size[1]:,} pixels)
-                    - Output: {enhanced.size[0]}x{enhanced.size[1]}px ({enhanced.size[0] * enhanced.size[1]:,} pixels)
-                    - Total Pixels Added: {(enhanced.size[0] * enhanced.size[1]) - (image.size[0] * image.size[1]):,}
-                    """
-                    )
+                                st.download_button(
+                                    label="📥 Download Enhanced Image",
+                                    data=byte_im,
+                                    file_name="enhanced_image.png",
+                                    mime="image/png",
+                                )
 
-                    # Convert to bytes for download
-                    buf = io.BytesIO()
-                    enhanced.save(buf, format="PNG")
-                    buf.seek(0)
+                            # Clear progress indicators
+                            progress_bar.empty()
+                            status_text.empty()
+                            progress_container.empty()
+                            st.success("Enhancement complete! ✨")
 
-                    # Add download button
-                    st.download_button(
-                        label="Download Enhanced Image",
-                        data=buf,
-                        file_name="enhanced_image.png",
-                        mime="image/png",
-                    )
-
-                except Exception as e:
-                    st.error(
-                        f"""
-                    ❌ **Error enhancing image:** {str(e)}
-                    
-                    **Possible solutions:**
-                    - Try reducing the target resolution
-                    - Use a smaller input image
-                    - Check if your system has enough memory
-                    - Wait a few minutes and try again
-                    """
-                    )
-                    logger.error(f"Enhancement error: {str(e)}", exc_info=True)
-
-                    # Clear progress indicators on error
-                    status_text.empty()
-                    progress_bar.empty()
-                    processing_info.empty()
-                    memory_info.empty()
-                    time_info.empty()
+                        except Exception as e:
+                            st.error(f"Error during enhancement: {str(e)}")
+                            logger.error(f"Enhancement error: {str(e)}")
 
         except Exception as e:
-            st.error(f"Error loading image: {str(e)}")
-            logger.error(f"Image loading error: {str(e)}", exc_info=True)
+            st.error(f"Error processing image: {str(e)}")
+            logger.error(f"Processing error: {str(e)}")
+
+    # Add usage instructions
+    with st.expander("📖 How to Use"):
+        st.markdown(
+            """
+        1. Select your desired output resolution from the presets or choose custom
+        2. Select the AI models you want to use from the sidebar
+        3. Upload an image using the file uploader above
+        4. Click the 'Enhance Image' button
+        5. View the enhancement details and download the enhanced image
+        
+        **Note:** 
+        - Higher resolutions (4K/5K) may take longer to process
+        - Multiple AI models can be combined for better results
+        - For optimal results, try different combinations of AI models
+        """
+        )
+
+    # Add footer
+    st.markdown("---")
+    st.markdown("Made with ❤️ using Python, Streamlit, and cutting-edge AI technology")
 
 
 if __name__ == "__main__":

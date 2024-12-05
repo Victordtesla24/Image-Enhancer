@@ -37,10 +37,26 @@ def test_enhance_image(enhancer):
     logger.info("Testing enhancement to width: %s", target_width)
 
     # Enhance image
-    enhanced = enhancer.enhance_image(test_image, target_width=target_width)
+    enhanced_image, enhancement_details = enhancer.enhance_image(
+        test_image, target_width=target_width
+    )
 
     # Verify basic properties
-    assert enhanced.mode == "RGB", "Enhanced image should be RGB"
-    assert enhanced.size[0] == target_width, f"Width should be {target_width}"
-    assert enhanced.size[1] > 0, "Height should be positive"
-    logger.info("Successfully enhanced to %s", enhanced.size)
+    assert enhanced_image.mode == "RGB", "Enhanced image should be RGB"
+    assert enhanced_image.size[0] == target_width, f"Width should be {target_width}"
+    assert enhanced_image.size[1] > 0, "Height should be positive"
+    logger.info("Successfully enhanced to %s", enhanced_image.size)
+
+    # Verify enhancement details
+    assert isinstance(
+        enhancement_details, dict
+    ), "Enhancement details should be a dictionary"
+    assert (
+        "source_size" in enhancement_details
+    ), "Enhancement details should include source size"
+    assert (
+        "target_size" in enhancement_details
+    ), "Enhancement details should include target size"
+    assert (
+        "processing_time" in enhancement_details
+    ), "Enhancement details should include processing time"

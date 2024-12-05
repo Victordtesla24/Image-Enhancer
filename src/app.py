@@ -95,8 +95,11 @@ async def enhance_image(request: Request, target_width: int = 7680):
         # Enhance image
         try:
             logger.info("Starting image enhancement...")
-            enhanced = image_enhancer.enhance_image(image, target_width=target_width)
-            logger.info(f"Enhancement completed - New size: {enhanced.size}")
+            enhanced_image, enhancement_details = image_enhancer.enhance_image(
+                image, target_width=target_width
+            )
+            logger.info(f"Enhancement completed - New size: {enhanced_image.size}")
+            logger.info(f"Enhancement details: {enhancement_details}")
         except RuntimeError as e:
             logger.error(
                 f"Runtime error during enhancement: {str(e)}\n{traceback.format_exc()}"
@@ -117,7 +120,7 @@ async def enhance_image(request: Request, target_width: int = 7680):
         logger.info("Converting enhanced image to PNG...")
         try:
             img_byte_arr = io.BytesIO()
-            enhanced.save(img_byte_arr, format="PNG")
+            enhanced_image.save(img_byte_arr, format="PNG")
             img_byte_arr.seek(0)
             result = img_byte_arr.getvalue()
             logger.info(f"Conversion complete - Output size: {len(result)} bytes")
