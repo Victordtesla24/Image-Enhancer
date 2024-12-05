@@ -13,6 +13,59 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
+# Function to clear package caches
+clear_package_caches() {
+    echo -e "${YELLOW}Clearing package caches...${NC}"
+    
+    # Clear pip cache
+    pip cache purge
+    
+    # Clear PyTorch cache
+    if [ -d "~/.cache/torch" ]; then
+        rm -rf ~/.cache/torch
+    fi
+    
+    # Clear Hugging Face cache
+    if [ -d "~/.cache/huggingface" ]; then
+        rm -rf ~/.cache/huggingface
+    fi
+    
+    # Clear model cache
+    if [ -d "~/.cache/image_enhancer" ]; then
+        rm -rf ~/.cache/image_enhancer
+    fi
+    
+    echo -e "${GREEN}Package caches cleared${NC}"
+}
+
+# Function to clear development caches
+clear_dev_caches() {
+    echo -e "${YELLOW}Clearing development caches...${NC}"
+    
+    # Clear Python cache
+    find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+    find . -type f -name "*.pyc" -delete
+    find . -type f -name "*.pyo" -delete
+    find . -type f -name "*.pyd" -delete
+    
+    # Clear pytest cache
+    rm -rf .pytest_cache
+    
+    # Clear coverage cache
+    rm -rf .coverage
+    rm -rf htmlcov
+    
+    # Clear temporary files
+    rm -rf temp_uploads/*
+    rm -rf .temp
+    
+    echo -e "${GREEN}Development caches cleared${NC}"
+}
+
+# Clear all caches before starting
+clear_package_caches
+clear_dev_caches
+
 # Activate virtual environment
 if [ -d "venv" ]; then
     source venv/bin/activate
@@ -24,31 +77,33 @@ fi
 
 # Update pip and packages
 echo -e "${YELLOW}Updating pip and packages...${NC}"
-pip install --upgrade pip
+pip install --upgrade pip --no-cache-dir
 
-# Ensure PyTorch and super-image are installed correctly
-if ! pip show torch > /dev/null || ! pip show super-image > /dev/null; then
-    echo -e "${YELLOW}Installing PyTorch and super-image...${NC}"
-    pip install torch torchvision --find-links https://download.pytorch.org/whl/torch_stable.html
-    pip uninstall -y huggingface-hub super-image
-    pip install huggingface-hub==0.8.1
-    pip install super-image==0.1.7
-fi
+# Clean uninstall of key packages
+echo -e "${YELLOW}Cleaning package installations...${NC}"
+pip uninstall -y torch torchvision super-image huggingface-hub
+
+# Reinstall packages with compatible versions
+echo -e "${YELLOW}Installing packages with compatible versions...${NC}"
+pip install torch==2.0.1 torchvision==0.15.2 --no-cache-dir
+pip install huggingface-hub==0.8.1 --no-cache-dir
+pip install super-image==0.1.7 --no-cache-dir
 
 # Install Streamlit if not present
 if ! pip show streamlit > /dev/null; then
     echo -e "${YELLOW}Installing Streamlit...${NC}"
-    pip install streamlit
+    pip install streamlit --no-cache-dir
 fi
 
-pip install -r requirements.txt
+# Install all requirements fresh
+pip install -r requirements.txt --no-deps --no-cache-dir
 
 # Fix code formatting
 echo -e "${YELLOW}Fixing code formatting...${NC}"
 if command_exists black; then
     black .
 else
-    pip install black
+    pip install black --no-cache-dir
     black .
 fi
 
@@ -57,13 +112,13 @@ echo -e "${YELLOW}Running linting...${NC}"
 if command_exists pylint; then
     pylint src/ tests/ || true
 else
-    pip install pylint
+    pip install pylint --no-cache-dir
     pylint src/ tests/ || true
 fi
 
 # Verify directory structure
 echo -e "${YELLOW}Verifying directory structure...${NC}"
-directories=("src" "tests" "assets" "models")
+directories=("src" "tests" "assets" "models" "temp_uploads" ".streamlit")
 for dir in "${directories[@]}"; do
     if [ ! -d "$dir" ]; then
         mkdir -p "$dir"
@@ -123,7 +178,7 @@ echo -e "${YELLOW}Cleaning up redundant files...${NC}"
 find . -type f -name "*.pyc" -delete
 find . -type d -name "__pycache__" -exec rm -r {} +
 
-# Update requirements.txt
+# Update requirements.txt with fixed versions
 echo -e "${YELLOW}Updating requirements.txt...${NC}"
 pip freeze > requirements.txt
 
@@ -139,5 +194,8 @@ textColor = "#262730"
 font = "sans serif"
 EOL
 fi
+
+# Final cache clear
+clear_dev_caches
 
 echo -e "${GREEN}Verification and fixes completed successfully!${NC}"

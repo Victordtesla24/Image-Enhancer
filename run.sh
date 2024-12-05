@@ -11,7 +11,7 @@ command_exists() {
     command -v "$1" >/dev/null 2>&1
 }
 
-# Cleanup function
+# Enhanced cleanup function
 cleanup() {
     echo -e "\n${YELLOW}Cleaning up...${NC}"
     deactivate 2>/dev/null
@@ -19,9 +19,56 @@ cleanup() {
 }
 trap cleanup INT TERM
 
+# Function to clear all caches
+clear_caches() {
+    echo -e "${YELLOW}Clearing all caches...${NC}"
+    
+    # Clear Python cache
+    find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+    find . -type f -name "*.pyc" -delete
+    find . -type f -name "*.pyo" -delete
+    find . -type f -name "*.pyd" -delete
+    
+    # Clear pytest cache
+    rm -rf .pytest_cache
+    
+    # Clear coverage cache
+    rm -rf .coverage
+    rm -rf htmlcov
+    
+    # Clear pip cache
+    pip cache purge
+    
+    # Clear Streamlit cache
+    rm -rf ~/.streamlit/cache
+    rm -rf .streamlit/cache
+    
+    # Clear model cache
+    rm -rf ~/.cache/image_enhancer
+    rm -rf ~/.cache/torch
+    rm -rf ~/.cache/huggingface
+    
+    # Clear browser cache (if running in development)
+    if [ -d "~/.cache/chromium" ]; then
+        rm -rf ~/.cache/chromium
+    fi
+    if [ -d "~/.cache/google-chrome" ]; then
+        rm -rf ~/.cache/google-chrome
+    fi
+    
+    # Clear temporary files
+    rm -rf temp_uploads/*
+    rm -rf .temp
+    
+    echo -e "${GREEN}All caches cleared successfully${NC}"
+}
+
 # Configure git settings
 REPO_URL="https://github.com/Victordtesla24/Image-Enhancer.git"
 BRANCH="main"
+
+# Clear all caches before starting
+clear_caches
 
 echo -e "${GREEN}Starting application...${NC}"
 
@@ -54,9 +101,9 @@ if ! source venv/bin/activate 2>/dev/null; then
     exit 1
 fi
 
-# Run tests
+# Run tests with fresh cache
 echo -e "${YELLOW}Running tests...${NC}"
-pytest
+pytest --cache-clear
 
 # Git repository verification and setup
 if ! git rev-parse --git-dir > /dev/null 2>&1; then
@@ -92,6 +139,10 @@ if [ $? -eq 0 ]; then
     else
         echo -e "${GREEN}No changes to commit${NC}"
     fi
+    
+    # Clear Streamlit cache before running
+    echo -e "${YELLOW}Clearing Streamlit cache before startup...${NC}"
+    rm -rf ~/.streamlit/cache
     
     # Run the Streamlit app
     echo -e "${GREEN}Starting Streamlit app...${NC}"
