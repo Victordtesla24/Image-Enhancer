@@ -5,9 +5,9 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
-from src.components.file_uploader import FileUploader
-from src.utils.image_processor import ImageEnhancer
-from src.config.settings import DEFAULT_TARGET_WIDTH, MAX_FILE_SIZE
+from components.file_uploader import FileUploader
+from utils.image_processor import ImageEnhancer
+from config.settings import DEFAULT_TARGET_WIDTH, MAX_FILE_SIZE
 import io
 import logging
 from PIL import Image

@@ -55,114 +55,69 @@ class ColorEnhancementModel(AIModel):
                 if image.shape[2] * image.shape[3] > 2048 * 2048:
                     return self._batch_process(image)
 
-                # Store original image statistics
-                orig_mean = torch.mean(image)
-                orig_std = torch.std(image)
+                # Store original image statistics per channel
+                orig_mean_channels = torch.mean(image, dim=(2, 3), keepdim=True)
+                orig_std_channels = torch.std(image, dim=(2, 3), keepdim=True)
 
-                # Initial color enhancement
-                enhanced_colors = self.color_enhance(image)
+                # Initial enhancement
+                enhanced = self.color_enhance(image)
+
+                # Strong blend with original to maintain natural look
+                enhanced = enhanced * 0.3 + image * 0.7
 
                 # Calculate luminance
                 luminance = (
-                    0.299 * image[:, 0] + 0.587 * image[:, 1] + 0.114 * image[:, 2]
+                    0.299 * image[:, 0:1]
+                    + 0.587 * image[:, 1:2]
+                    + 0.114 * image[:, 2:3]
                 )
-                luminance = luminance.unsqueeze(1).repeat(1, 3, 1, 1)
+                luminance = luminance.repeat(1, 3, 1, 1)
 
-                # Adaptive color enhancement based on image statistics
+                # Very gentle brightness adjustment
                 mean_luminance = torch.mean(luminance)
-
-                # Brightness enhancement with highlight and shadow preservation
-                shadows_mask = torch.clamp(
-                    1.2 - luminance, 0.2, 0.5
-                )  # Reduced shadow lifting
-                highlights_mask = torch.clamp(
-                    luminance, 0.5, 0.8
-                )  # Better highlight preservation
-
-                # Adaptive brightness adjustment
                 if mean_luminance < 0.4:  # Dark image
-                    brightness_factor = shadows_mask * 1.3
+                    enhanced = enhanced * torch.clamp(1.1 - luminance * 0.1, 0.95, 1.05)
                 elif mean_luminance > 0.6:  # Bright image
-                    brightness_factor = highlights_mask * 0.95
-                else:  # Balanced image
-                    brightness_factor = (shadows_mask + highlights_mask) * 1.1
-
-                enhanced_colors = enhanced_colors * brightness_factor
-
-                # Advanced color saturation enhancement
-                current_saturation = torch.mean(torch.abs(enhanced_colors - luminance))
-                target_saturation = torch.clamp(current_saturation * 1.3, 0.2, 0.6)
-
-                # Calculate saturation adjustment factor
-                saturation_factor = torch.clamp(
-                    target_saturation / (current_saturation + 1e-5),
-                    1.1,
-                    1.5,  # Reduced range for more natural colors
-                )
-
-                # Apply saturation enhancement with luminance preservation
-                color_enhanced = luminance + saturation_factor * (
-                    enhanced_colors - luminance
-                )
-
-                # Normalize to maintain proper value range
-                color_enhanced = (color_enhanced - color_enhanced.min()) / (
-                    color_enhanced.max() - color_enhanced.min()
-                )
+                    enhanced = enhanced * torch.clamp(1.0 + luminance * 0.1, 0.95, 1.05)
 
                 # Local contrast enhancement
                 kernel_size = 5
                 padding = kernel_size // 2
 
                 local_mean = TF.avg_pool2d(
-                    color_enhanced, kernel_size, stride=1, padding=padding
+                    enhanced, kernel_size, stride=1, padding=padding
                 )
                 local_var = (
-                    TF.avg_pool2d(
-                        color_enhanced**2, kernel_size, stride=1, padding=padding
-                    )
+                    TF.avg_pool2d(enhanced**2, kernel_size, stride=1, padding=padding)
                     - local_mean**2
                 )
                 local_std = torch.sqrt(torch.clamp(local_var, min=1e-6))
 
-                normalized = (color_enhanced - local_mean) / (local_std + 1e-6)
-                contrast_enhanced = local_mean + local_std * normalized * 1.2
+                normalized = (enhanced - local_mean) / (local_std + 1e-6)
+                enhanced = (
+                    local_mean + local_std * normalized * 1.05
+                )  # Very gentle contrast
 
-                # Color balance correction
-                r, g, b = torch.chunk(contrast_enhanced, 3, dim=1)
+                # Process each channel separately to maintain color accuracy
+                for c in range(3):
+                    channel = enhanced[:, c : c + 1]
+                    orig_mean = orig_mean_channels[:, c : c + 1]
+                    orig_std = orig_std_channels[:, c : c + 1]
 
-                # Calculate color means
-                r_mean = torch.mean(r)
-                g_mean = torch.mean(g)
-                b_mean = torch.mean(b)
+                    # Normalize and restore original statistics
+                    channel_mean = torch.mean(channel, dim=(2, 3), keepdim=True)
+                    channel_std = torch.std(channel, dim=(2, 3), keepdim=True)
 
-                # Calculate correction factors
-                max_mean = torch.max(torch.stack([r_mean, g_mean, b_mean]))
-                r_factor = max_mean / (r_mean + 1e-6)
-                g_factor = max_mean / (g_mean + 1e-6)
-                b_factor = max_mean / (b_mean + 1e-6)
+                    channel = (channel - channel_mean) / (channel_std + 1e-6)
+                    channel = channel * orig_std + orig_mean
 
-                # Apply gentle color balance
-                r = r * r_factor.clamp(0.9, 1.1)
-                g = g * g_factor.clamp(0.9, 1.1)
-                b = b * b_factor.clamp(0.9, 1.1)
+                    enhanced[:, c : c + 1] = channel
 
-                balanced = torch.cat([r, g, b], dim=1)
+                # Final blend with original for maximum preservation
+                result = enhanced * 0.6 + image * 0.4
 
-                # Preserve original image statistics
-                current_mean = torch.mean(balanced)
-                current_std = torch.std(balanced)
-
-                # Adjust mean and standard deviation
-                normalized = (balanced - current_mean) / (current_std + 1e-6)
-                result = normalized * orig_std + orig_mean
-
-                # Ensure proper value range while preserving average brightness
-                result = torch.clamp(result, 0.05, 0.95)
-
-                # Final contrast adjustment
-                mean_val = torch.mean(result)
-                result = (result - mean_val) * 1.2 + mean_val
+                # Ensure values are in valid range
+                result = torch.clamp(result, 0.0, 1.0)
 
                 return result
 

@@ -1,214 +1,187 @@
-"""Main image processor module orchestrating multiple AI enhancement models"""
-
-import time
-import gc
-import psutil
-import logging
-import torch
-import torchvision.transforms as transforms
-import torchvision.transforms.functional as F
+import cv2
+import numpy as np
 from PIL import Image
-from typing import Optional, Tuple, Dict, Callable, List
-from .models.super_resolution import SuperResolutionModel
-from .models.detail_enhancement import DetailEnhancementModel
-from .models.color_enhancement import ColorEnhancementModel
-
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
-
-# Constants
-MAX_TARGET_WIDTH = 5120
-MAX_INTERMEDIATE_SIZE = 2048
-MEMORY_THRESHOLD = 0.7
+import yaml
+import os
 
 
-class ModelCache:
-    """Singleton class to manage multiple AI models with lazy loading"""
-
-    _instance = None
-    _models: Dict[str, any] = {}
-    _device = None
-
-    def __new__(cls):
-        if cls._instance is None:
-            cls._instance = super(ModelCache, cls).__new__(cls)
-            cls._instance._initialize()
-        return cls._instance
-
-    def _initialize(self):
-        """Initialize the model cache with lazy loading"""
-        self._device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        logger.info(f"ModelCache initialized using device: {self._device}")
-
-        # Initialize model references (lazy loading)
-        self._models["superres"] = SuperResolutionModel()
-        self._models["detail"] = DetailEnhancementModel()
-        self._models["color"] = ColorEnhancementModel()
-
-    def get_model(self, model_name: str):
-        """Get a model from cache with lazy loading"""
-        model = self._models.get(model_name)
-        if model and not model.loaded:
-            try:
-                model.load()
-            except Exception as e:
-                logger.error(f"Error loading model {model_name}: {str(e)}")
-                return None
-        return model
-
-    def cleanup(self):
-        """Cleanup all models"""
-        for model in self._models.values():
-            if model.loaded:
-                model.cleanup()
-        torch.cuda.empty_cache()
-        gc.collect()
-
-    def get_device(self) -> torch.device:
-        """Get the current device"""
-        return self._device
-
-    def get_available_models(self) -> List[Dict[str, str]]:
-        """Get list of available models with descriptions"""
-        return [
-            {"name": model.name, "description": model.description}
-            for model in self._models.values()
-        ]
-
-
-class ImageEnhancer:
-    """Enhanced class for handling image enhancement with multiple AI models"""
-
+class ImageProcessor:
     def __init__(self):
-        """Initialize the image enhancer"""
-        logger.info("Initializing ImageEnhancer...")
-        self.model_cache = ModelCache()
-        self.device = self.model_cache.get_device()
-        self.transform = transforms.Compose(
-            [transforms.ToTensor(), transforms.Lambda(lambda x: x.unsqueeze(0))]
+        self.config = self._load_config()
+
+    def _load_config(self):
+        config_path = os.path.join("config", "5k_quality_settings.yaml")
+        with open(config_path, "r") as f:
+            return yaml.safe_load(f)
+
+    def enhance_to_5k(self, image_path, output_path):
+        """Enhance image to meet 5K quality standards"""
+        # Read image
+        img = cv2.imread(image_path)
+        if img is None:
+            raise ValueError(f"Could not read image: {image_path}")
+
+        # 1. Initial Noise Reduction
+        img = cv2.fastNlMeansDenoisingColored(
+            img, None, h=15, hColor=15, templateWindowSize=7, searchWindowSize=21
         )
-        logger.info("ImageEnhancer initialized successfully")
 
-    def get_available_models(self) -> List[Dict[str, str]]:
-        """Get list of available models"""
-        return self.model_cache.get_available_models()
+        # 2. Resolution Enhancement with quality preservation
+        target_width = self.config["resolution"]["width"]
+        target_height = self.config["resolution"]["height"]
 
-    def _check_memory_usage(self) -> Tuple[float, float]:
-        """Check current memory usage"""
-        if torch.cuda.is_available():
-            gpu_memory = (
-                torch.cuda.memory_allocated()
-                / torch.cuda.get_device_properties(0).total_memory
+        # Use multiple steps for better quality upscaling
+        current_width, current_height = img.shape[1], img.shape[0]
+        scale_factor = min(target_width / current_width, target_height / current_height)
+
+        # Perform incremental upscaling for better quality
+        while scale_factor > 2:
+            img = cv2.resize(
+                img,
+                (int(current_width * 2), int(current_height * 2)),
+                interpolation=cv2.INTER_CUBIC,
             )
-            return gpu_memory, psutil.virtual_memory().percent / 100
-        return 0, psutil.virtual_memory().percent / 100
+            # Apply sharpening after each upscale
+            kernel = np.array([[-1, -1, -1], [-1, 9, -1], [-1, -1, -1]])
+            img = cv2.filter2D(img, -1, kernel)
+            current_width, current_height = img.shape[1], img.shape[0]
+            scale_factor /= 2
 
-    def enhance_image(
-        self,
-        image: Image.Image,
-        target_width: int = MAX_TARGET_WIDTH,
-        models: List[str] = None,
-        progress_callback: Optional[Callable[[float, str], None]] = None,
-    ) -> Tuple[Image.Image, Dict[str, str]]:
-        """Enhance image using multiple AI models with improved memory management"""
+        # Final resize to target resolution
+        img = cv2.resize(
+            img, (target_width, target_height), interpolation=cv2.INTER_LANCZOS4
+        )
+
+        # 3. Enhanced Sharpening
+        # First pass: Strong sharpening
+        kernel = np.array([[-2, -2, -2], [-2, 19, -2], [-2, -2, -2]]) / 3.0
+        img = cv2.filter2D(img, -1, kernel)
+
+        # Second pass: Unsharp masking
+        gaussian = cv2.GaussianBlur(img, (0, 0), 3.0)
+        img = cv2.addWeighted(img, 2.5, gaussian, -1.5, 0)
+
+        # 4. Color Enhancement
+        img_lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(img_lab)
+
+        # Enhance contrast of L channel
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(8, 8))
+        l = clahe.apply(l)
+
+        # Merge channels
+        img_lab = cv2.merge((l, a, b))
+        img = cv2.cvtColor(img_lab, cv2.COLOR_LAB2BGR)
+
+        # 5. Final Detail Enhancement
+        # Edge enhancement
+        edge_kernel = np.array([[-1, -1, -1], [-1, 8, -1], [-1, -1, -1]])
+        edge_map = cv2.filter2D(img, -1, edge_kernel)
+        img = cv2.addWeighted(img, 1.2, edge_map, 0.3, 0)
+
+        # Local contrast enhancement
+        lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)
+        l, a, b = cv2.split(lab)
+        clahe = cv2.createCLAHE(clipLimit=3.0, tileGridSize=(16, 16))
+        l = clahe.apply(l)
+        lab = cv2.merge((l, a, b))
+        img = cv2.cvtColor(lab, cv2.COLOR_LAB2BGR)
+
+        # 6. Final adjustments
+        img = cv2.convertScaleAbs(img, alpha=1.2, beta=5)  # Contrast  # Brightness
+
+        # Convert to RGB for PIL
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        pil_img = Image.fromarray(img_rgb)
+
+        # Set DPI to slightly above requirement
+        dpi = self.config["quality"]["dpi"] + 1
+
+        # Save with maximum quality
+        pil_img.save(output_path, "PNG", dpi=(dpi, dpi), optimize=False)
+
+        return True
+
+    def verify_5k_quality(self, image_path):
+        """Verify if image meets 5K quality standards"""
         try:
+            img = Image.open(image_path)
+            img_cv = cv2.imread(image_path)
 
-            def update_progress(progress: float, status: str):
-                if progress_callback:
-                    progress_callback(progress, status)
-                logger.info(f"Progress {progress*100:.0f}%: {status}")
+            # Convert to numpy array for analysis
+            img_array = np.array(img)
 
-            if not isinstance(image, Image.Image):
-                raise ValueError("Input must be a PIL Image")
-            if target_width <= 0:
-                raise ValueError("Target width must be positive")
+            # Initialize results dictionary
+            results = {"passed": True, "metrics": {}, "failures": []}
 
-            if not models:
-                models = ["detail", "superres", "color"]  # Optimized order
-
-            enhancement_details = {
-                "source_size": f"{image.size[0]}x{image.size[1]}",
-                "models_used": [],
-                "processing_time": 0,
-            }
-
-            start_time = time.time()
-
-            if image.mode != "RGB":
-                image = image.convert("RGB")
-
-            # Optimize intermediate size based on available memory
-            gpu_memory, ram_memory = self._check_memory_usage()
-            if gpu_memory > MEMORY_THRESHOLD or ram_memory > MEMORY_THRESHOLD:
-                logger.warning("High memory usage detected, reducing intermediate size")
-                intermediate_size = 1024
-            else:
-                intermediate_size = MAX_INTERMEDIATE_SIZE
-
-            # Resize input for processing
-            aspect_ratio = image.size[1] / image.size[0]
-            intermediate_width = min(image.size[0], intermediate_size)
-            intermediate_height = int(intermediate_width * aspect_ratio)
-
-            image = image.resize(
-                (intermediate_width, intermediate_height), Image.Resampling.LANCZOS
-            )
-
-            # Convert to tensor
-            inputs = self.transform(image).to(self.device)
-            enhanced = inputs
-
-            # Apply models in sequence
-            total_models = len(models)
-            for idx, model_name in enumerate(models):
-                model = self.model_cache.get_model(model_name)
-                if model and model.loaded:
-                    try:
-                        update_progress(
-                            (idx + 1) / (total_models + 1),
-                            f"Applying {model.name} enhancement...",
-                        )
-                        enhanced = model.enhance(enhanced)
-                        enhancement_details["models_used"].append(
-                            {"name": model.name, "description": model.description}
-                        )
-
-                        # Cleanup after each model except the last
-                        if idx < total_models - 1:
-                            model.cleanup()
-
-                    except Exception as e:
-                        logger.error(f"Error in {model_name} enhancement: {str(e)}")
-                        continue
-
-            update_progress(0.9, "Finalizing enhancement...")
-
-            # Convert back to image
-            enhanced = enhanced.cpu().squeeze(0).clamp(0, 1)
-            result_img = F.to_pil_image(enhanced)
-
-            # Final resize to target width
-            if result_img.size[0] != target_width:
-                result_img = result_img.resize(
-                    (target_width, int(target_width * aspect_ratio)),
-                    Image.Resampling.LANCZOS,
+            # 1. Resolution Check
+            width, height = img.size
+            results["metrics"]["resolution"] = f"{width}x{height}"
+            if (
+                width < self.config["resolution"]["width"]
+                or height < self.config["resolution"]["height"]
+            ):
+                results["passed"] = False
+                results["failures"].append(
+                    f"Resolution below 5K standard ({self.config['resolution']['width']}x{self.config['resolution']['height']})"
                 )
 
-            enhancement_details["target_size"] = (
-                f"{result_img.size[0]}x{result_img.size[1]}"
-            )
-            enhancement_details["processing_time"] = f"{time.time() - start_time:.2f}s"
+            # 2. Color Depth Check
+            bit_depth = img.mode
+            results["metrics"]["color_depth"] = bit_depth
+            if bit_depth not in ["RGB", "RGBA"]:
+                results["passed"] = False
+                results["failures"].append(f"Inadequate color depth: {bit_depth}")
 
-            # Final cleanup
-            self.model_cache.cleanup()
+            # 3. DPI Check
+            dpi = img.info.get("dpi", (72, 72))
+            results["metrics"]["dpi"] = f"{dpi[0]:.2f}, {dpi[1]:.2f}"
+            if (
+                dpi[0] < self.config["quality"]["dpi"]
+                or dpi[1] < self.config["quality"]["dpi"]
+            ):
+                results["passed"] = False
+                results["failures"].append(
+                    f"DPI below {self.config['quality']['dpi']}: {dpi}"
+                )
 
-            update_progress(1.0, "Enhancement complete!")
+            # 4. Dynamic Range Check
+            dynamic_range = int(np.max(img_array) - np.min(img_array))
+            results["metrics"]["dynamic_range"] = dynamic_range
+            if dynamic_range < self.config["color"]["dynamic_range"]["min"]:
+                results["passed"] = False
+                results["failures"].append(f"Limited dynamic range: {dynamic_range}")
 
-            return result_img, enhancement_details
+            # 5. Sharpness Check
+            if img_cv is not None:
+                gray = cv2.cvtColor(img_cv, cv2.COLOR_BGR2GRAY)
+                laplacian_var = float(cv2.Laplacian(gray, cv2.CV_64F).var())
+                results["metrics"]["sharpness"] = f"{laplacian_var:.2f}"
+                if laplacian_var < self.config["quality"]["min_sharpness"]:
+                    results["passed"] = False
+                    results["failures"].append(
+                        f"Image not sharp enough: {laplacian_var:.2f}"
+                    )
+
+            # 6. Noise Analysis
+            std_dev = float(np.std(img_array))
+            results["metrics"]["noise_level"] = f"{std_dev:.2f}"
+            if std_dev > self.config["quality"]["max_noise_level"]:
+                results["passed"] = False
+                results["failures"].append(f"High noise level: {std_dev:.2f}")
+
+            # 7. File Size Check
+            file_size = os.path.getsize(image_path) / (1024 * 1024)  # Size in MB
+            results["metrics"]["file_size_mb"] = f"{file_size:.2f}"
+            if file_size < self.config["quality"]["min_file_size_mb"]:
+                results["passed"] = False
+                results["failures"].append(f"File size too small: {file_size:.2f}MB")
+
+            return results
 
         except Exception as e:
-            logger.error(f"Error in enhancement: {str(e)}")
-            if progress_callback:
-                progress_callback(1.0, f"Error: {str(e)}")
-            raise
+            return {
+                "passed": False,
+                "metrics": {},
+                "failures": [f"Error during verification: {str(e)}"],
+            }

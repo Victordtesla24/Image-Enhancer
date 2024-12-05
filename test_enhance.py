@@ -32,7 +32,7 @@ def main():
     print(f"Source size: {details['source_size']}")
     print(f"Final size: {enhanced_image.size[0]}x{enhanced_image.size[1]}")
     print(
-        f"Total processing time: {float(details['processing_time']) + float(color_details['processing_time']):.2f}s"
+        f"Total processing time: {float(details['processing_time'].rstrip('s')) + float(color_details['processing_time'].rstrip('s')):.2f}s"
     )
     print("\nModels used:")
     for model in details["models_used"] + color_details["models_used"]:
