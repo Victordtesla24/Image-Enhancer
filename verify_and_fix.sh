@@ -6,7 +6,97 @@ GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 NC='\033[0m'
 
-echo -e "${GREEN}Starting verification and fixes...${NC}"
+# Store initial state
+initial_state_file=".initial_state"
+final_state_file=".final_state"
+
+# Function to capture state
+capture_state() {
+    find . -type f -not -path "*/\.*" -exec md5sum {} \; > "$1" 2>/dev/null
+}
+
+# Function to generate commit message
+generate_commit_message() {
+    local message="🔄 Auto Update: "
+    local changes=()
+
+    # Capture changes in dependencies
+    if [ -f "requirements.txt" ]; then
+        if ! cmp -s "requirements.txt" "requirements.txt.bak" 2>/dev/null; then
+            changes+=("📦 Updated dependencies")
+        fi
+    fi
+
+    # Check for Streamlit file changes
+    if [ -f "streamlit_app.py" ] && [ -f "streamlit_app.py.bak" ]; then
+        if ! cmp -s "streamlit_app.py" "streamlit_app.py.bak"; then
+            changes+=("🎨 Modified Streamlit app")
+        fi
+    fi
+
+    # Check directory structure changes
+    if [ -n "$(git status --porcelain | grep '?? /')" ]; then
+        changes+=("📁 Updated directory structure")
+    fi
+
+    # Check for config changes
+    if [ -f ".streamlit/config.toml" ] && [ -f ".streamlit/config.toml.bak" 2>/dev/null ]; then
+        if ! cmp -s ".streamlit/config.toml" ".streamlit/config.toml.bak"; then
+            changes+=("⚙️ Modified configuration")
+        fi
+    fi
+
+    # Check for documentation changes
+    if git status --porcelain | grep -q "docs/"; then
+        changes+=("📚 Updated documentation")
+    fi
+
+    # Check for test changes
+    if git status --porcelain | grep -q "tests/"; then
+        changes+=("🧪 Modified tests")
+    fi
+
+    # Check for source code changes
+    if git status --porcelain | grep -q "src/"; then
+        changes+=("💻 Updated source code")
+    fi
+
+    # If no specific changes detected, add generic update message
+    if [ ${#changes[@]} -eq 0 ]; then
+        changes+=("🔧 General maintenance and improvements")
+    fi
+
+    # Combine all changes into commit message
+    message+="["
+    for i in "${!changes[@]}"; do
+        if [ $i -gt 0 ]; then
+            message+=", "
+        fi
+        message+="${changes[$i]}"
+    done
+    message+="]"
+
+    echo "$message"
+}
+
+# Backup current state
+backup_files() {
+    if [ -f "requirements.txt" ]; then
+        cp requirements.txt requirements.txt.bak 2>/dev/null
+    fi
+    if [ -f "streamlit_app.py" ]; then
+        cp streamlit_app.py streamlit_app.py.bak 2>/dev/null
+    fi
+    if [ -f ".streamlit/config.toml" ]; then
+        cp .streamlit/config.toml .streamlit/config.toml.bak 2>/dev/null
+    fi
+}
+
+# Cleanup backup files
+cleanup_backups() {
+    rm -f requirements.txt.bak streamlit_app.py.bak .streamlit/config.toml.bak
+    rm -f "$initial_state_file" "$final_state_file"
+}
 
 # Function to check if command exists
 command_exists() {
@@ -61,6 +151,12 @@ clear_dev_caches() {
     
     echo -e "${GREEN}Development caches cleared${NC}"
 }
+
+# Capture initial state
+backup_files
+capture_state "$initial_state_file"
+
+echo -e "${GREEN}Starting verification and fixes...${NC}"
 
 # Clear all caches before starting
 clear_package_caches
@@ -126,65 +222,27 @@ for dir in "${directories[@]}"; do
     fi
 done
 
-# Create README.md if it doesn't exist
-if [ ! -f "README.md" ]; then
-    echo -e "${YELLOW}Creating README.md...${NC}"
-    cat > README.md << EOL
-# Image Enhancer
+# Fix Streamlit app file structure
+echo -e "${YELLOW}Fixing Streamlit app file structure...${NC}"
 
-A Streamlit application for enhancing image quality using deep learning.
-
-## Features
-- Upload images
-- Enhance image quality
-- Download enhanced images
-
-## Setup
-1. Clone the repository
-2. Run \`./proj_setup.sh\` to set up the virtual environment
-3. Run \`./run.sh\` to start the application
-
-## Requirements
-- Python 3.7+
-- See requirements.txt for full dependencies
-EOL
+# Remove duplicate app files
+if [ -f "src/app.py" ]; then
+    rm src/app.py
+fi
+if [ -f "src/streamlit_app.py" ]; then
+    rm src/streamlit_app.py
 fi
 
-# Move app.py to streamlit_app.py if needed
-if [ -f "src/app.py" ] && [ ! -f "streamlit_app.py" ]; then
-    echo -e "${YELLOW}Moving app.py to streamlit_app.py...${NC}"
-    cp src/app.py streamlit_app.py
-    # Update imports in streamlit_app.py
+# Update imports in streamlit_app.py
+if [ -f "streamlit_app.py" ]; then
+    echo -e "${YELLOW}Updating imports in streamlit_app.py...${NC}"
     sed -i '' 's/from src\./from /g' streamlit_app.py
 fi
 
-# Remove FastAPI specific directories
-if [ -d "src/static" ]; then
-    echo -e "${YELLOW}Removing FastAPI specific directories...${NC}"
-    rm -rf src/static
-fi
-
-# Verify init files
-init_files=("src/__init__.py" "src/components/__init__.py" "src/utils/__init__.py" "tests/__init__.py")
-for file in "${init_files[@]}"; do
-    if [ ! -f "$file" ]; then
-        touch "$file"
-        echo -e "${GREEN}Created missing file: $file${NC}"
-    fi
-done
-
-# Remove redundant files
-echo -e "${YELLOW}Cleaning up redundant files...${NC}"
-find . -type f -name "*.pyc" -delete
-find . -type d -name "__pycache__" -exec rm -r {} +
-
-# Update requirements.txt with fixed versions
-echo -e "${YELLOW}Updating requirements.txt...${NC}"
-pip freeze > requirements.txt
-
-# Create .streamlit directory and config
-if [ ! -d ".streamlit" ]; then
-    mkdir .streamlit
+# Create .streamlit/config.toml if it doesn't exist
+if [ ! -f ".streamlit/config.toml" ]; then
+    echo -e "${YELLOW}Creating Streamlit config...${NC}"
+    mkdir -p .streamlit
     cat > .streamlit/config.toml << EOL
 [theme]
 primaryColor = "#F63366"
@@ -192,10 +250,109 @@ backgroundColor = "#FFFFFF"
 secondaryBackgroundColor = "#F0F2F6"
 textColor = "#262730"
 font = "sans serif"
+
+[server]
+enableCORS = false
+enableXsrfProtection = false
+
+[browser]
+gatherUsageStats = false
 EOL
 fi
 
-# Final cache clear
-clear_dev_caches
+# Update requirements.txt with Streamlit-specific requirements
+echo -e "${YELLOW}Updating requirements.txt with Streamlit requirements...${NC}"
+pip freeze | grep -v "pkg-resources" > requirements.txt
 
-echo -e "${GREEN}Verification and fixes completed successfully!${NC}"
+# Ensure core dependencies are in requirements.txt
+core_deps=(
+    "streamlit"
+    "pillow"
+    "torch"
+    "torchvision"
+    "super-image"
+    "huggingface-hub"
+    "opencv-python-headless"
+    "numpy"
+)
+
+for dep in "${core_deps[@]}"; do
+    if ! grep -q "^$dep" requirements.txt; then
+        pip install "$dep"
+    fi
+done
+
+# Update requirements.txt again after ensuring core deps
+pip freeze | grep -v "pkg-resources" > requirements.txt
+
+# Remove redundant files
+echo -e "${YELLOW}Cleaning up redundant files...${NC}"
+find . -type f -name "*.pyc" -delete
+find . -type d -name "__pycache__" -exec rm -r {} +
+
+# Create Streamlit-specific files
+echo -e "${YELLOW}Creating Streamlit-specific files...${NC}"
+
+# Create .gitignore if it doesn't exist
+if [ ! -f ".gitignore" ]; then
+    cat > .gitignore << EOL
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+.env
+.venv
+env/
+venv/
+ENV/
+env.bak/
+venv.bak/
+.idea/
+.vscode/
+*.swp
+.DS_Store
+temp_uploads/
+.coverage
+htmlcov/
+.pytest_cache/
+.streamlit/secrets.toml
+EOL
+fi
+
+# Create Procfile for Streamlit deployment if it doesn't exist
+if [ ! -f "Procfile" ]; then
+    echo "web: streamlit run streamlit_app.py" > Procfile
+fi
+
+# Create runtime.txt for Python version if it doesn't exist
+if [ ! -f "runtime.txt" ]; then
+    echo "python-3.8.12" > runtime.txt
+fi
+
+# Capture final state and generate commit message
+capture_state "$final_state_file"
+commit_message=$(generate_commit_message)
+echo "$commit_message" > .commit_message
+
+# Cleanup
+cleanup_backups
+
+echo -e "${GREEN}All Streamlit deployment files created and verified!${NC}"
+echo -e "${YELLOW}Generated commit message: ${commit_message}${NC}"

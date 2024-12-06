@@ -187,7 +187,17 @@ setup_git
 if [ -n "$(git status --porcelain)" ]; then
     log_message "YELLOW" "Changes detected. Committing..."
     git add .
-    read -p "Enter commit message: " commit_message
+    
+    # Use generated commit message if available, otherwise prompt user
+    if [ -f ".commit_message" ]; then
+        commit_message=$(cat .commit_message)
+        rm .commit_message
+        log_message "GREEN" "Using auto-generated commit message: $commit_message"
+    else
+        log_message "YELLOW" "No auto-generated commit message found."
+        read -p "Enter commit message: " commit_message
+    fi
+    
     if ! git commit -m "$commit_message"; then
         log_message "RED" "Failed to commit changes"
         exit 1

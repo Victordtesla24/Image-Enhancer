@@ -4,8 +4,8 @@ import io
 import logging
 import streamlit as st
 from PIL import Image
-from src.components.file_uploader import FileUploader
-from src.utils.image_processor import ImageEnhancer
+from components.file_uploader import FileUploader
+from utils.image_processor import ImageEnhancer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -20,7 +20,7 @@ def main():
     st.markdown(
         """
     Enhance your images up to 5K resolution using cutting-edge AI technology. 
-    Upload an image and see it transformed using multiple state-of-the-art AI models!
+    Upload an image and see it transformed using multiple state-of-the-art enhancement models!
     """
     )
 
@@ -35,13 +35,13 @@ def main():
     available_models = st.session_state.image_enhancer.get_available_models()
 
     # Sidebar - Model Selection and Info
-    st.sidebar.header("🤖 AI Models")
+    st.sidebar.header("🤖 Enhancement Models")
     selected_models = []
     for model in available_models:
         if st.sidebar.checkbox(
             f"Use {model['name']}", value=True, key=f"model_{model['name']}"
         ):
-            selected_models.append(model["name"].lower())
+            selected_models.append(model["name"])
         with st.sidebar.expander(f"ℹ️ About {model['name']}"):
             st.write(model["description"])
 
@@ -90,6 +90,7 @@ def main():
     if uploaded_file is not None:
         try:
             # Read and validate image
+            logger.info("Validating uploaded image")
             image_bytes = uploaded_file.getvalue()
             input_image = st.session_state.file_uploader.validate_image(
                 io.BytesIO(image_bytes)
@@ -106,9 +107,11 @@ def main():
             # Add enhance button
             if st.button("🔄 Enhance Image", key="enhance_button"):
                 if not selected_models:
-                    st.error("Please select at least one AI model from the sidebar!")
+                    st.error(
+                        "Please select at least one enhancement model from the sidebar!"
+                    )
                 else:
-                    with st.spinner("Initializing AI models..."):
+                    with st.spinner("Processing image..."):
                         try:
                             # Create progress tracking
                             progress_container = st.empty()
@@ -124,6 +127,7 @@ def main():
                                 )
 
                             # Enhance image
+                            logger.info("Starting image enhancement")
                             enhanced_image, enhancement_details = (
                                 st.session_state.image_enhancer.enhance_image(
                                     input_image,
@@ -149,7 +153,7 @@ def main():
                                         f"Size: {enhancement_details['source_size']}"
                                     )
 
-                                    st.markdown("**AI Models Applied**")
+                                    st.markdown("**Models Applied**")
                                     for model in enhancement_details["models_used"]:
                                         st.markdown(
                                             f"- **{model['name']}**: {model['description']}"
@@ -165,7 +169,7 @@ def main():
 
                                 # Add download button
                                 buf = io.BytesIO()
-                                enhanced_image.save(buf, format="PNG")
+                                enhanced_image.save(buf, format="PNG", quality=95)
                                 byte_im = buf.getvalue()
 
                                 st.download_button(
@@ -194,21 +198,21 @@ def main():
         st.markdown(
             """
         1. Select your desired output resolution from the presets or choose custom
-        2. Select the AI models you want to use from the sidebar
+        2. Select the enhancement models you want to use from the sidebar
         3. Upload an image using the file uploader above
         4. Click the 'Enhance Image' button
         5. View the enhancement details and download the enhanced image
         
         **Note:** 
         - Higher resolutions (4K/5K) may take longer to process
-        - Multiple AI models can be combined for better results
-        - For optimal results, try different combinations of AI models
+        - Multiple models can be combined for better results
+        - For optimal results, try different combinations of models
         """
         )
 
     # Add footer
     st.markdown("---")
-    st.markdown("Made with ❤️ using Python, Streamlit, and cutting-edge AI technology")
+    st.markdown("Made with ❤️ using Python, Streamlit, and advanced image processing")
 
 
 if __name__ == "__main__":

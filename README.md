@@ -1,34 +1,48 @@
-# Image-Enhancer
+# 5K AI Image Enhancer
 
-A professional image enhancement system that converts images to 5K quality while maintaining optimal visual characteristics.
+Enhance your images up to 5K resolution using advanced image processing technology. This application provides state-of-the-art enhancement capabilities through multiple specialized models.
+
+![5K AI Image Enhancer](assets/app_screenshot.png)
 
 ## Features
 
-- 5K resolution enhancement (5120x2880)
-- Advanced sharpness enhancement
-- Noise reduction
-- Color optimization
-- Quality verification system
-- Comprehensive metrics analysis
+- **Super Resolution Enhancement**
+  - Advanced multi-step upscaling
+  - Lanczos resampling for quality preservation
+  - Adaptive sharpening technology
 
-## Requirements
+- **Color Enhancement**
+  - LAB color space processing
+  - Adaptive contrast enhancement
+  - Natural color preservation
 
-- Python 3.11+
-- OpenCV
-- NumPy
-- PIL (Pillow)
-- PyYAML
-- Pytest (for testing)
+- **Detail Enhancement**
+  - Multi-scale detail processing
+  - Intelligent noise reduction
+  - Edge preservation technology
+
+## Key Benefits
+
+- 📈 Upscale images to 5K resolution
+- 🎨 Enhance colors and contrast
+- 🔍 Improve image details and sharpness
+- 🚀 Fast and efficient processing
+- 💻 User-friendly web interface
+
+## Documentation
+
+- [Quick Start Guide](docs/quickstart.md) - Get up and running quickly
+- [Architecture Documentation](docs/architecture.md) - Detailed system architecture and design
 
 ## Installation
 
 1. Clone the repository:
 ```bash
-git clone https://github.com/yourusername/Image-Enhancer.git
+git clone https://github.com/Victordtesla24/Image-Enhancer.git
 cd Image-Enhancer
 ```
 
-2. Create and activate a virtual environment:
+2. Create and activate virtual environment:
 ```bash
 python -m venv venv
 source venv/bin/activate  # On Windows: venv\Scripts\activate
@@ -39,66 +53,39 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+4. Run the application:
+```bash
+streamlit run streamlit_app.py
+```
+
+## System Requirements
+
+- Python 3.8+
+- 8GB RAM minimum (16GB recommended)
+- Modern web browser
+- Internet connection for initial setup
+
 ## Usage
 
-### Command Line Interface
-
-Enhance a single image:
-```bash
-python enhance_and_verify.py input_image.png
-```
-
-The enhanced image will be saved with '_5k' suffix (e.g., input_image_5k.png)
-
-### Quality Metrics
-
-The system verifies the following metrics:
-- Resolution: 5120x2880 (5K)
-- Color Depth: RGB
-- DPI: 300+
-- Dynamic Range: 220-255
-- Sharpness: 70+
-- Noise Level: Below 120
-- File Size: Minimum 1.5MB
-
-## Testing
-
-Run the test suite:
-```bash
-pytest tests/ -v --cov=src/
-```
-
-## Configuration
-
-Quality settings can be adjusted in `config/5k_quality_settings.yaml`
+1. Select enhancement models from the sidebar
+2. Choose desired output resolution
+3. Upload your image
+4. Click "Enhance Image"
+5. Download the enhanced result
 
 ## Project Structure
 
 ```
 Image-Enhancer/
-├── config/
-│   └── 5k_quality_settings.yaml
-├── src/
-│   ├── utils/
-│   │   ├── image_processor.py
-│   │   └── models/
-│   └── components/
-├── tests/
-│   └── test_image_processor.py
-├── enhance_and_verify.py
-└── requirements.txt
+├── src/                  # Source code
+│   ├── components/       # UI components
+│   ├── utils/           # Core utilities
+│   └── config/          # Configuration
+├── config/              # System configuration
+├── docs/                # Documentation
+├── tests/               # Test files
+└── streamlit_app.py     # Main application
 ```
-
-## Deployment
-
-1. Ensure all tests pass
-2. Verify configuration settings
-3. Check system requirements
-4. Deploy using your preferred method (Docker, direct installation, etc.)
-
-## License
-
-MIT License
 
 ## Contributing
 
@@ -107,3 +94,31 @@ MIT License
 3. Commit your changes
 4. Push to the branch
 5. Create a Pull Request
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+## Acknowledgments
+
+- OpenCV for image processing capabilities
+- Streamlit for the web interface
+- Python community for various dependencies
+
+## Support
+
+For support and questions, please:
+1. Check the [documentation](docs/)
+2. Review existing issues
+3. Create a new issue if needed
+
+## Roadmap
+
+- [ ] GPU acceleration support
+- [ ] Additional enhancement models
+- [ ] Batch processing capability
+- [ ] API development
+- [ ] Cloud integration
+
+---
+Made with ❤️ using Python, OpenCV, and Streamlit
