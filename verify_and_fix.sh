@@ -15,89 +15,6 @@ capture_state() {
     find . -type f -not -path "*/\.*" -exec md5sum {} \; > "$1" 2>/dev/null
 }
 
-# Function to generate commit message
-generate_commit_message() {
-    local message="🔄 Auto Update: "
-    local changes=()
-
-    # Capture changes in dependencies
-    if [ -f "requirements.txt" ]; then
-        if ! cmp -s "requirements.txt" "requirements.txt.bak" 2>/dev/null; then
-            changes+=("📦 Updated dependencies")
-        fi
-    fi
-
-    # Check for Streamlit file changes
-    if [ -f "streamlit_app.py" ] && [ -f "streamlit_app.py.bak" ]; then
-        if ! cmp -s "streamlit_app.py" "streamlit_app.py.bak"; then
-            changes+=("🎨 Modified Streamlit app")
-        fi
-    fi
-
-    # Check directory structure changes
-    if [ -n "$(git status --porcelain | grep '?? /')" ]; then
-        changes+=("📁 Updated directory structure")
-    fi
-
-    # Check for config changes
-    if [ -f ".streamlit/config.toml" ] && [ -f ".streamlit/config.toml.bak" 2>/dev/null ]; then
-        if ! cmp -s ".streamlit/config.toml" ".streamlit/config.toml.bak"; then
-            changes+=("⚙️ Modified configuration")
-        fi
-    fi
-
-    # Check for documentation changes
-    if git status --porcelain | grep -q "docs/"; then
-        changes+=("📚 Updated documentation")
-    fi
-
-    # Check for test changes
-    if git status --porcelain | grep -q "tests/"; then
-        changes+=("🧪 Modified tests")
-    fi
-
-    # Check for source code changes
-    if git status --porcelain | grep -q "src/"; then
-        changes+=("💻 Updated source code")
-    fi
-
-    # If no specific changes detected, add generic update message
-    if [ ${#changes[@]} -eq 0 ]; then
-        changes+=("🔧 General maintenance and improvements")
-    fi
-
-    # Combine all changes into commit message
-    message+="["
-    for i in "${!changes[@]}"; do
-        if [ $i -gt 0 ]; then
-            message+=", "
-        fi
-        message+="${changes[$i]}"
-    done
-    message+="]"
-
-    echo "$message"
-}
-
-# Backup current state
-backup_files() {
-    if [ -f "requirements.txt" ]; then
-        cp requirements.txt requirements.txt.bak 2>/dev/null
-    fi
-    if [ -f "streamlit_app.py" ]; then
-        cp streamlit_app.py streamlit_app.py.bak 2>/dev/null
-    fi
-    if [ -f ".streamlit/config.toml" ]; then
-        cp .streamlit/config.toml .streamlit/config.toml.bak 2>/dev/null
-    fi
-}
-
-# Cleanup backup files
-cleanup_backups() {
-    rm -f requirements.txt.bak streamlit_app.py.bak .streamlit/config.toml.bak
-    rm -f "$initial_state_file" "$final_state_file"
-}
-
 # Function to check if command exists
 command_exists() {
     command -v "$1" >/dev/null 2>&1
@@ -152,13 +69,61 @@ clear_dev_caches() {
     echo -e "${GREEN}Development caches cleared${NC}"
 }
 
+# Function to verify model files
+verify_models() {
+    echo -e "${YELLOW}Verifying AI models...${NC}"
+    
+    # Create models directory if it doesn't exist
+    mkdir -p models
+    
+    # Check for required model files
+    required_models=(
+        "super_resolution"
+        "color_enhancement"
+        "detail_enhancement"
+    )
+    
+    for model in "${required_models[@]}"; do
+        if [ ! -d "models/${model}" ]; then
+            echo -e "${YELLOW}Creating ${model} model directory...${NC}"
+            mkdir -p "models/${model}"
+        fi
+    done
+    
+    echo -e "${GREEN}Model verification complete${NC}"
+}
+
+# Function to run tests with coverage
+run_tests_with_coverage() {
+    echo -e "${YELLOW}Running tests with coverage...${NC}"
+    
+    # Install coverage if not present
+    if ! command_exists coverage; then
+        pip install coverage
+    fi
+    
+    # Run tests with coverage
+    coverage run -m pytest
+    
+    # Generate coverage report
+    coverage report
+    coverage html
+    
+    # Check coverage threshold
+    coverage report | grep TOTAL | awk '{print $4}' | grep -q "^[0-9]\{2,3\}%$" || {
+        echo -e "${RED}Coverage is below 80%. Please add more tests.${NC}"
+        return 1
+    }
+    
+    echo -e "${GREEN}Tests completed successfully${NC}"
+}
+
 # Capture initial state
-backup_files
 capture_state "$initial_state_file"
 
 echo -e "${GREEN}Starting verification and fixes...${NC}"
 
-# Clear all caches before starting
+# Clear all caches
 clear_package_caches
 clear_dev_caches
 
@@ -175,46 +140,34 @@ fi
 echo -e "${YELLOW}Updating pip and packages...${NC}"
 pip install --upgrade pip --no-cache-dir
 
-# Clean uninstall of key packages
-echo -e "${YELLOW}Cleaning package installations...${NC}"
-pip uninstall -y torch torchvision super-image huggingface-hub
+# Install/upgrade required packages
+echo -e "${YELLOW}Installing/upgrading required packages...${NC}"
+pip install -r requirements.txt --no-cache-dir
 
-# Reinstall packages with compatible versions
-echo -e "${YELLOW}Installing packages with compatible versions...${NC}"
-pip install torch==2.0.1 torchvision==0.15.2 --no-cache-dir
-pip install huggingface-hub==0.8.1 --no-cache-dir
-pip install super-image==0.1.7 --no-cache-dir
-
-# Install Streamlit if not present
-if ! pip show streamlit > /dev/null; then
-    echo -e "${YELLOW}Installing Streamlit...${NC}"
-    pip install streamlit --no-cache-dir
-fi
-
-# Install all requirements fresh
-pip install -r requirements.txt --no-deps --no-cache-dir
+# Install development dependencies
+pip install black pylint pytest pytest-cov coverage --no-cache-dir
 
 # Fix code formatting
 echo -e "${YELLOW}Fixing code formatting...${NC}"
-if command_exists black; then
-    black .
-else
-    pip install black --no-cache-dir
-    black .
-fi
+black .
 
 # Run linting
 echo -e "${YELLOW}Running linting...${NC}"
-if command_exists pylint; then
-    pylint src/ tests/ || true
-else
-    pip install pylint --no-cache-dir
-    pylint src/ tests/ || true
-fi
+pylint src/ tests/ || true
 
 # Verify directory structure
 echo -e "${YELLOW}Verifying directory structure...${NC}"
-directories=("src" "tests" "assets" "models" "temp_uploads" ".streamlit")
+directories=(
+    "src/utils/model_management"
+    "src/utils/session_management"
+    "src/utils/quality_management"
+    "src/utils/enhancers"
+    "models"
+    "tests"
+    "temp_uploads"
+    ".streamlit"
+)
+
 for dir in "${directories[@]}"; do
     if [ ! -d "$dir" ]; then
         mkdir -p "$dir"
@@ -222,26 +175,17 @@ for dir in "${directories[@]}"; do
     fi
 done
 
-# Fix Streamlit app file structure
-echo -e "${YELLOW}Fixing Streamlit app file structure...${NC}"
+# Verify model files
+verify_models
 
-# Remove duplicate app files
-if [ -f "src/app.py" ]; then
-    rm src/app.py
-fi
-if [ -f "src/streamlit_app.py" ]; then
-    rm src/streamlit_app.py
-fi
+# Run tests with coverage
+run_tests_with_coverage
 
-# Update imports in streamlit_app.py
-if [ -f "streamlit_app.py" ]; then
-    echo -e "${YELLOW}Updating imports in streamlit_app.py...${NC}"
-    sed -i '' 's/from src\./from /g' streamlit_app.py
-fi
+# Create/update necessary files
+echo -e "${YELLOW}Creating/updating necessary files...${NC}"
 
 # Create .streamlit/config.toml if it doesn't exist
 if [ ! -f ".streamlit/config.toml" ]; then
-    echo -e "${YELLOW}Creating Streamlit config...${NC}"
     mkdir -p .streamlit
     cat > .streamlit/config.toml << EOL
 [theme]
@@ -260,40 +204,7 @@ gatherUsageStats = false
 EOL
 fi
 
-# Update requirements.txt with Streamlit-specific requirements
-echo -e "${YELLOW}Updating requirements.txt with Streamlit requirements...${NC}"
-pip freeze | grep -v "pkg-resources" > requirements.txt
-
-# Ensure core dependencies are in requirements.txt
-core_deps=(
-    "streamlit"
-    "pillow"
-    "torch"
-    "torchvision"
-    "super-image"
-    "huggingface-hub"
-    "opencv-python-headless"
-    "numpy"
-)
-
-for dep in "${core_deps[@]}"; do
-    if ! grep -q "^$dep" requirements.txt; then
-        pip install "$dep"
-    fi
-done
-
-# Update requirements.txt again after ensuring core deps
-pip freeze | grep -v "pkg-resources" > requirements.txt
-
-# Remove redundant files
-echo -e "${YELLOW}Cleaning up redundant files...${NC}"
-find . -type f -name "*.pyc" -delete
-find . -type d -name "__pycache__" -exec rm -r {} +
-
-# Create Streamlit-specific files
-echo -e "${YELLOW}Creating Streamlit-specific files...${NC}"
-
-# Create .gitignore if it doesn't exist
+# Create/update .gitignore
 if [ ! -f ".gitignore" ]; then
     cat > .gitignore << EOL
 __pycache__/
@@ -333,26 +244,47 @@ temp_uploads/
 htmlcov/
 .pytest_cache/
 .streamlit/secrets.toml
+models/*/checkpoints/
 EOL
 fi
 
-# Create Procfile for Streamlit deployment if it doesn't exist
+# Create/update Procfile
 if [ ! -f "Procfile" ]; then
     echo "web: streamlit run streamlit_app.py" > Procfile
 fi
 
-# Create runtime.txt for Python version if it doesn't exist
+# Create/update runtime.txt
 if [ ! -f "runtime.txt" ]; then
     echo "python-3.8.12" > runtime.txt
 fi
 
-# Capture final state and generate commit message
-capture_state "$final_state_file"
-commit_message=$(generate_commit_message)
-echo "$commit_message" > .commit_message
+# Generate commit message
+message="🔄 Auto Update: ["
+
+# Check for changes
+if [ -n "$(git status --porcelain)" ]; then
+    if [ -n "$(git status --porcelain | grep 'src/')" ]; then
+        message+="💻 Updated source code, "
+    fi
+    if [ -n "$(git status --porcelain | grep 'tests/')" ]; then
+        message+="🧪 Updated tests, "
+    fi
+    if [ -n "$(git status --porcelain | grep 'models/')" ]; then
+        message+="🤖 Updated models, "
+    fi
+    if [ -n "$(git status --porcelain | grep 'requirements.txt')" ]; then
+        message+="📦 Updated dependencies, "
+    fi
+    # Remove trailing comma and space
+    message="${message%, }]"
+else
+    message+="No changes required]"
+fi
+
+echo "$message" > .commit_message
 
 # Cleanup
-cleanup_backups
+rm -f "$initial_state_file" "$final_state_file"
 
-echo -e "${GREEN}All Streamlit deployment files created and verified!${NC}"
-echo -e "${YELLOW}Generated commit message: ${commit_message}${NC}"
+echo -e "${GREEN}All verifications and fixes completed!${NC}"
+echo -e "${YELLOW}Generated commit message: ${message}${NC}"

@@ -1,165 +1,231 @@
-"""Test the core image enhancement functionality"""
+"""Test suite for main image processor"""
 
-import logging
-from pathlib import Path
-import pytest
-from PIL import Image
-import numpy as np
 import os
+import pytest
+import numpy as np
+from PIL import Image
+import torch
 from src.utils.image_processor import ImageEnhancer
+from src.utils.model_management.model_manager import ModelManager
+from src.utils.session_management.session_manager import SessionManager
+from src.utils.quality_management.quality_manager import QualityManager
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+@pytest.fixture
+def test_image():
+    """Create test image"""
+    # Create a test pattern with various features
+    img = np.zeros((200, 200, 3), dtype=np.uint8)
+    
+    # Add color gradient
+    x, y = np.meshgrid(np.linspace(0, 255, 200), np.linspace(0, 255, 200))
+    img[:, :, 0] = x.astype(np.uint8)  # Red channel
+    img[:, :, 1] = y.astype(np.uint8)  # Green channel
+    
+    # Add some patterns for detail enhancement testing
+    img[50:150, 50:150, 2] = 255  # Blue square
+    img[75:125, 75:125] = [255, 255, 255]  # White square
+    
+    return Image.fromarray(img)
 
-
-@pytest.fixture(scope="module")
-def test_image_path(tmp_path_factory):
-    """Create a test image and return its path"""
-    test_dir = tmp_path_factory.mktemp("test_images")
-    image_path = test_dir / "test.png"
-
-    # Create a test image with good dynamic range and sharpness
-    size = (1024, 1024)  # Larger size for better quality
-
-    # Create base pattern with higher frequency for better sharpness
-    x = np.linspace(0, 100, size[0])
-    y = np.linspace(0, 100, size[1])
-    xx, yy = np.meshgrid(x, y)
-
-    # Create multiple patterns for better dynamic range
-    pattern1 = np.sin(xx * 0.5) * np.cos(yy * 0.5) * 127 + 128
-    pattern2 = np.sin(xx * 0.2) * np.cos(yy * 0.2) * 127 + 128
-    pattern3 = np.sin(xx * 0.1) * np.cos(yy * 0.1) * 127 + 128
-
-    # Combine patterns for more detail
-    pattern = pattern1 * 0.5 + pattern2 * 0.3 + pattern3 * 0.2
-
-    # Ensure full dynamic range
-    pattern = (
-        (pattern - pattern.min()) / (pattern.max() - pattern.min()) * 255
-    ).astype(np.uint8)
-
-    # Create RGB image with full dynamic range
-    img_array = np.zeros((size[0], size[1], 3), dtype=np.uint8)
-
-    # Add varied patterns to each channel for better color range
-    img_array[:, :, 0] = pattern  # Red channel
-    img_array[:, :, 1] = np.roll(pattern, size[0] // 4, axis=0)  # Green channel
-    img_array[:, :, 2] = np.roll(pattern, -size[0] // 4, axis=0)  # Blue channel
-
-    # Add high contrast elements
-    img_array[size[0] // 4 : size[0] // 2, size[1] // 4 : size[1] // 2] = (
-        255  # White square
-    )
-    img_array[size[0] // 2 : 3 * size[0] // 4, size[1] // 2 : 3 * size[1] // 4] = (
-        0  # Black square
-    )
-
-    # Add diagonal lines for sharpness
-    for i in range(size[0]):
-        img_array[i, i] = 255
-        img_array[i, size[1] - i - 1] = 255
-
-    # Create image and save with high quality
-    img = Image.fromarray(img_array, "RGB")
-
-    # Save with high quality settings
-    img.save(image_path, format="PNG", optimize=False, quality=100, dpi=(300, 300))
-
-    return str(image_path)
-
-
-@pytest.fixture(scope="module")
+@pytest.fixture
 def processor():
-    """Create an ImageEnhancer instance that's reused across tests"""
-    return ImageEnhancer()
+    """Create ImageEnhancer instance"""
+    return ImageEnhancer("test_session")
 
+def test_processor_initialization(processor):
+    """Test image processor initialization"""
+    assert isinstance(processor.model_manager, ModelManager)
+    assert isinstance(processor.session_manager, SessionManager)
+    assert isinstance(processor.quality_manager, QualityManager)
+    assert processor.models is not None
+    assert len(processor.models) == 3
 
-def test_initialization(processor):
-    """Test that ImageEnhancer initializes correctly"""
-    assert processor.config is not None, "Config should be loaded"
-    assert "resolution" in processor.config, "Config should contain resolution settings"
-    assert "quality" in processor.config, "Config should contain quality settings"
+def test_available_models(processor):
+    """Test getting available models"""
+    models = processor.get_available_models()
+    assert len(models) == 3
+    assert all(isinstance(model, dict) for model in models)
+    assert all("name" in model and "description" in model for model in models)
 
-
-def test_5k_enhancement(processor, test_image_path, tmp_path):
-    """Test that image enhancement to 5K produces expected results"""
-    output_path = str(tmp_path / "enhanced_5k.png")
-
-    # Enhance image
-    enhanced_img, _ = processor.enhance_image(
-        Image.open(test_image_path),
-        target_width=processor.config["resolution"]["width"],
+def test_basic_enhancement(processor, test_image):
+    """Test basic image enhancement"""
+    enhanced_image, details = processor.enhance_image(
+        test_image,
+        target_width=400,
         models=["Super Resolution"],
+        retry_count=0
     )
+    
+    assert isinstance(enhanced_image, Image.Image)
+    assert enhanced_image.size[0] == 400
+    assert "quality_results" in details
+    assert "processing_time" in details
 
-    # Save with high quality settings
-    enhanced_img.save(
-        output_path, format="PNG", optimize=False, quality=100, dpi=(300, 300)
-    )
-
-    # Verify enhanced image exists and has correct properties
-    assert os.path.exists(output_path), "Enhanced image should exist"
-    enhanced_img = Image.open(output_path)
-
-    # Check resolution
-    assert (
-        enhanced_img.size[0] == processor.config["resolution"]["width"]
-    ), "Width should match 5K"
-    assert enhanced_img.mode == "RGB", "Enhanced image should be RGB"
-
-
-def test_quality_verification(processor, test_image_path):
-    """Test image quality verification functionality"""
-    # Verify original test image
-    results = processor.verify_5k_quality(test_image_path)
-
-    assert isinstance(results, dict), "Verification should return a dictionary"
-    assert "passed" in results, "Results should include pass/fail status"
-    assert "metrics" in results, "Results should include metrics"
-    assert "failures" in results, "Results should include any failures"
-
-    # Check specific metrics
-    metrics = results["metrics"]
-    assert "resolution" in metrics, "Should include resolution"
-    assert "color_depth" in metrics, "Should include color depth"
-    assert "dpi" in metrics, "Should include DPI"
-    assert "sharpness" in metrics, "Should include sharpness"
-    assert "noise_level" in metrics, "Should include noise level"
-    assert "file_size_mb" in metrics, "Should include file size"
-
-
-def test_enhanced_image_quality(processor, test_image_path, tmp_path):
-    """Test that enhanced image meets quality requirements"""
-    output_path = str(tmp_path / "quality_test.png")
-
-    # Enhance image
-    enhanced_img, _ = processor.enhance_image(
-        Image.open(test_image_path),
-        target_width=processor.config["resolution"]["width"],
+def test_full_enhancement_pipeline(processor, test_image):
+    """Test complete enhancement pipeline"""
+    enhanced_image, details = processor.enhance_image(
+        test_image,
+        target_width=400,
         models=["Super Resolution", "Color Enhancement", "Detail Enhancement"],
+        retry_count=0
     )
+    
+    assert isinstance(enhanced_image, Image.Image)
+    assert enhanced_image.size[0] == 400
+    assert len(details["models_used"]) == 3
+    assert all(model["parameters"] for model in details["models_used"])
 
-    # Save with high quality settings
-    enhanced_img.save(
-        output_path, format="PNG", optimize=False, quality=100, dpi=(300, 300)
+def test_enhancement_with_retry(processor, test_image):
+    """Test enhancement with retry mechanism"""
+    enhanced_image, details = processor.enhance_image(
+        test_image,
+        target_width=400,
+        models=["Super Resolution", "Detail Enhancement"],
+        retry_count=1
     )
+    
+    assert isinstance(enhanced_image, Image.Image)
+    assert "retry_count" in details
+    assert details["retry_count"] >= 0
 
-    # Verify enhanced image quality
-    results = processor.verify_5k_quality(output_path)
+def test_quality_validation(processor, test_image):
+    """Test quality validation in enhancement process"""
+    enhanced_image, details = processor.enhance_image(
+        test_image,
+        target_width=400,
+        models=["Super Resolution"],
+        retry_count=0
+    )
+    
+    assert "quality_results" in details
+    quality_results = details["quality_results"]
+    assert "resolution" in quality_results
+    assert "sharpness" in quality_results
+    assert "noise_level" in quality_results
 
-    # Check key quality metrics
-    metrics = results["metrics"]
-    resolution = metrics["resolution"].split("x")
-    assert int(resolution[0]) == processor.config["resolution"]["width"]
-    assert metrics["color_depth"] == "RGB"
+def test_session_tracking(processor, test_image):
+    """Test session tracking during enhancement"""
+    enhanced_image, details = processor.enhance_image(
+        test_image,
+        target_width=400,
+        models=["Super Resolution"],
+        retry_count=0
+    )
+    
+    history = processor.get_enhancement_history()
+    assert "history" in history
+    assert "metrics_summary" in history
+    assert len(history["history"]) > 0
 
-    # Verify DPI meets minimum requirement
-    dpi = float(metrics["dpi"].split(",")[0])
-    assert dpi >= processor.config["quality"]["dpi"]
+def test_feedback_system(processor, test_image):
+    """Test feedback system"""
+    # Perform enhancement
+    enhanced_image, details = processor.enhance_image(
+        test_image,
+        target_width=400,
+        models=["Super Resolution"],
+        retry_count=0
+    )
+    
+    # Apply feedback
+    image_hash = processor._compute_image_hash(test_image)
+    feedback = {
+        "super_resolution": {
+            "scale_factor": 1  # Increase scale factor
+        }
+    }
+    processor.apply_feedback(image_hash, feedback)
+    
+    # Verify feedback application
+    history = processor.get_enhancement_history(image_hash)
+    assert "metrics_summary" in history
 
-    # Check if enhanced image passes verification
-    assert results[
-        "passed"
-    ], f"Enhanced image should pass verification. Failures: {results.get('failures', [])}"
+def test_quality_preferences(processor):
+    """Test quality preferences management"""
+    preferences = processor.get_quality_preferences()
+    assert isinstance(preferences, dict)
+    
+    new_preferences = {
+        "min_resolution": (3840, 2160),
+        "min_dpi": 200
+    }
+    processor.update_quality_preferences(new_preferences)
+    
+    updated_preferences = processor.get_quality_preferences()
+    assert updated_preferences["min_resolution"] == (3840, 2160)
+    assert updated_preferences["min_dpi"] == 200
+
+def test_error_handling(processor):
+    """Test error handling"""
+    # Test with invalid input
+    with pytest.raises(Exception):
+        processor.enhance_image(None, 400, ["Super Resolution"])
+    
+    # Test with invalid model
+    with pytest.raises(Exception):
+        processor.enhance_image(
+            Image.new('RGB', (100, 100)),
+            400,
+            ["Invalid Model"]
+        )
+
+def test_memory_management(processor, test_image):
+    """Test memory management during enhancement"""
+    initial_memory = torch.cuda.memory_allocated() if torch.cuda.is_available() else 0
+    
+    enhanced_image, details = processor.enhance_image(
+        test_image,
+        target_width=1000,  # Larger size to stress memory
+        models=["Super Resolution", "Color Enhancement", "Detail Enhancement"],
+        retry_count=0
+    )
+    
+    # Force garbage collection
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    
+    final_memory = torch.cuda.memory_allocated() if torch.cuda.is_available() else 0
+    assert final_memory <= initial_memory * 1.1  # Allow for small overhead
+
+def test_enhancement_consistency(processor, test_image):
+    """Test consistency of enhancement results"""
+    # Perform two identical enhancements
+    result1, details1 = processor.enhance_image(
+        test_image,
+        target_width=400,
+        models=["Super Resolution"],
+        retry_count=0
+    )
+    
+    result2, details2 = processor.enhance_image(
+        test_image,
+        target_width=400,
+        models=["Super Resolution"],
+        retry_count=0
+    )
+    
+    # Compare results
+    diff = np.array(result1) - np.array(result2)
+    assert np.abs(diff).mean() < 1.0  # Allow for small floating-point differences
+
+def test_progress_callback(processor, test_image):
+    """Test progress callback functionality"""
+    progress_values = []
+    
+    def progress_callback(progress, status):
+        progress_values.append(progress)
+    
+    enhanced_image, details = processor.enhance_image(
+        test_image,
+        target_width=400,
+        models=["Super Resolution", "Color Enhancement"],
+        progress_callback=progress_callback
+    )
+    
+    assert len(progress_values) > 0
+    assert progress_values[-1] == 1.0  # Final progress should be 100%
+
+def test_cleanup(processor):
+    """Test cleanup after processing"""
+    # Cleanup happens in fixture teardown
+    pass

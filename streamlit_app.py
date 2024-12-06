@@ -4,8 +4,8 @@ import io
 import logging
 import streamlit as st
 from PIL import Image
-from components.file_uploader import FileUploader
-from utils.image_processor import ImageEnhancer
+from src.components.file_uploader import FileUploader
+from src.utils.image_processor import ImageEnhancer
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -50,8 +50,8 @@ def main():
 
     # Resolution presets
     resolution_presets = {
-        "4K (3840x2160)": 3840,
         "5K (5120x2880)": 5120,
+        "4K (3840x2160)": 3840,
         "2K (2048x1080)": 2048,
         "Full HD (1920x1080)": 1920,
         "Custom": "custom",
@@ -60,7 +60,7 @@ def main():
     selected_preset = st.sidebar.selectbox(
         "Resolution Preset",
         options=list(resolution_presets.keys()),
-        index=1,  # Default to 5K
+        index=0,  # Default to 5K
         help="Select target resolution preset or choose custom",
     )
 
@@ -152,6 +152,7 @@ def main():
                                     st.text(
                                         f"Size: {enhancement_details['source_size']}"
                                     )
+                                    st.text(f"DPI: {enhancement_details['source_dpi']}")
 
                                     st.markdown("**Models Applied**")
                                     for model in enhancement_details["models_used"]:
@@ -163,9 +164,23 @@ def main():
                                     st.text(
                                         f"Size: {enhancement_details['target_size']}"
                                     )
+                                    st.text(f"DPI: {enhancement_details['target_dpi']}")
                                     st.text(
                                         f"Processing Time: {enhancement_details['processing_time']}"
                                     )
+
+                                    # Quality Check Results
+                                    st.markdown("**Quality Check Results**")
+                                    quality_checks = enhancement_details[
+                                        "quality_checks"
+                                    ]
+                                    for check, details in quality_checks.items():
+                                        status = "✅" if details["passed"] else "❌"
+                                        st.markdown(
+                                            f"- **{check}**: {status}\n  "
+                                            f"  - Current: {details['value']}\n  "
+                                            f"  - Required: {details['required']}"
+                                        )
 
                                 # Add download button
                                 buf = io.BytesIO()
@@ -201,7 +216,17 @@ def main():
         2. Select the enhancement models you want to use from the sidebar
         3. Upload an image using the file uploader above
         4. Click the 'Enhance Image' button
-        5. View the enhancement details and download the enhanced image
+        5. View the enhancement details and quality check results
+        6. Download the enhanced image if satisfied
+        
+        **Quality Requirements:**
+        - Resolution: Minimum 5K (5120x2880)
+        - Color Depth: 24-bit RGB or 32-bit RGBA
+        - DPI: Minimum 300
+        - Dynamic Range: 220-255
+        - Sharpness: Minimum 70
+        - Noise Level: Maximum 120
+        - File Size: Minimum 1.5MB
         
         **Note:** 
         - Higher resolutions (4K/5K) may take longer to process

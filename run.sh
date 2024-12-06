@@ -54,11 +54,78 @@ check_port_available() {
     fi
 }
 
-# Function to safely remove directory/file if it exists
-safe_remove() {
-    if [ -e "$1" ]; then
-        rm -rf "$1"
+# Function to preload AI models
+preload_models() {
+    log_message "YELLOW" "Preloading AI models..."
+    
+    # Create models directory if it doesn't exist
+    mkdir -p models
+    
+    # Create Python script for model preloading
+    cat > preload_models.py << EOL
+import torch
+from src.utils.model_management.model_manager import ModelManager
+from src.utils.session_management.session_manager import SessionManager
+from src.utils.quality_management.quality_manager import QualityManager
+from src.utils.image_processor import ImageEnhancer
+
+def preload():
+    try:
+        # Initialize managers
+        model_manager = ModelManager()
+        session_manager = SessionManager()
+        
+        # Load configuration
+        config = session_manager.core.config
+        quality_manager = QualityManager(config)
+        
+        # Initialize enhancer
+        enhancer = ImageEnhancer()
+        
+        print("Models preloaded successfully")
+        return True
+    except Exception as e:
+        print(f"Error preloading models: {str(e)}")
+        return False
+
+if __name__ == "__main__":
+    success = preload()
+    exit(0 if success else 1)
+EOL
+
+    # Run preloading script
+    if ! python preload_models.py; then
+        log_message "RED" "Failed to preload models"
+        rm preload_models.py
+        exit 1
     fi
+    
+    rm preload_models.py
+    log_message "GREEN" "AI models preloaded successfully"
+}
+
+# Function to verify model files
+verify_models() {
+    log_message "YELLOW" "Verifying model files..."
+    
+    # Create models directory if it doesn't exist
+    mkdir -p models
+    
+    # Check for required model files
+    required_models=(
+        "super_resolution"
+        "color_enhancement"
+        "detail_enhancement"
+    )
+    
+    for model in "${required_models[@]}"; do
+        if [ ! -d "models/${model}" ]; then
+            log_message "YELLOW" "Creating ${model} model directory..."
+            mkdir -p "models/${model}"
+        fi
+    done
+    
+    log_message "GREEN" "Model verification complete"
 }
 
 # Function to clear all caches
@@ -72,18 +139,10 @@ clear_caches() {
     find . -type f -name "*.pyd" -delete
     
     # Clear various cache directories
-    safe_remove ".pytest_cache"
-    safe_remove ".coverage"
-    safe_remove "htmlcov"
-    safe_remove "~/.streamlit/cache"
-    safe_remove ".streamlit/cache"
-    safe_remove "~/.cache/image_enhancer"
-    safe_remove "~/.cache/torch"
-    safe_remove "~/.cache/huggingface"
-    safe_remove "~/.cache/chromium"
-    safe_remove "~/.cache/google-chrome"
-    safe_remove "temp_uploads/*"
-    safe_remove ".temp"
+    rm -rf .pytest_cache .coverage htmlcov
+    rm -rf ~/.streamlit/cache .streamlit/cache
+    rm -rf ~/.cache/image_enhancer ~/.cache/torch ~/.cache/huggingface
+    rm -rf temp_uploads/* .temp
     
     # Clear pip cache
     pip cache purge 2>/dev/null
@@ -173,6 +232,10 @@ fi
 # Verify dependencies
 verify_dependencies
 
+# Verify and preload models
+verify_models
+preload_models
+
 # Run tests with fresh cache
 log_message "YELLOW" "Running tests..."
 if ! pytest --cache-clear; then
@@ -211,7 +274,7 @@ fi
 
 # Clear Streamlit cache before running
 log_message "YELLOW" "Clearing Streamlit cache before startup..."
-safe_remove "~/.streamlit/cache"
+rm -rf ~/.streamlit/cache
 
 # Run the Streamlit app
 log_message "GREEN" "Starting Streamlit app..."

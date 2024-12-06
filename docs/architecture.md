@@ -1,327 +1,249 @@
 # 5K AI Image Enhancer - Architecture Documentation
 
-## Overview
-The 5K AI Image Enhancer is a web-based application that enhances images to 5K quality using advanced image processing techniques. It provides multiple enhancement models that can be used individually or in combination.
+[Previous sections remain unchanged up to System Architecture]
 
-## System Architecture
+## Learning System Architecture
 
-### High-Level Components
+### Model Adaptation Pipeline
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌────────────────┐
-│   Streamlit UI  │────▶│  Image Enhancer  │────▶│ Enhancement    │
-│   (Frontend)    │◀────│  (Controller)    │◀────│ Models         │
-└─────────────────┘     └──────────────────┘     └────────────────┘
-                               │
-                               ▼
-                        ┌──────────────────┐
-                        │  File Handler &  │
-                        │  Quality Verify  │
-                        └──────────────────┘
+User Feedback → Quality Metrics → Parameter Optimization → Model Update
+      ↑              ↓                    ↓                   ↓
+      └──────────────────── Performance Tracking ─────────────┘
 ```
 
-### Component Details
+### Learning Components
 
-1. **Frontend (streamlit_app.py)**
-   - Handles user interface and interactions
-   - Manages file uploads and downloads
-   - Displays enhancement progress and results
-   - Components:
-     * Model selection interface
-     * Resolution settings
-     * Progress tracking
-     * Results display
+1. **Parameter Optimization**
+   - Gradient-based updates
+   - Quality-weighted adjustments
+   - Constraint satisfaction
+   - Boundary handling
 
-2. **Image Enhancer (src/utils/image_processor.py)**
-   - Core processing controller
-   - Manages enhancement pipeline
-   - Coordinates between components
-   - Key features:
-     * Model initialization
-     * Enhancement coordination
-     * Quality verification
-     * Error handling
+2. **Performance Tracking**
+   - Success rate monitoring
+   - Quality metric trends
+   - User satisfaction metrics
+   - Resource utilization
 
-3. **Enhancement Models**
-   - Super Resolution
-     * Multi-step upscaling
-     * Lanczos resampling
-     * Adaptive sharpening
-   - Color Enhancement
-     * LAB color space processing
-     * Adaptive contrast
-     * Color balance optimization
-   - Detail Enhancement
-     * Multi-scale processing
-     * Noise reduction
-     * Edge preservation
+3. **Feedback Integration**
+   - User feedback collection
+   - Automated quality assessment
+   - Historical performance analysis
+   - Adaptation strategy selection
 
-4. **File Handler (src/components/file_uploader.py)**
-   - Manages file operations
-   - Validates input images
-   - Handles format conversions
-   - Features:
-     * Format validation
-     * Size checks
-     * Color space conversion
-     * Error handling
+### Learning Process
 
-## Data Flow
+1. **Data Collection**
+   ```
+   Enhancement Request → Quality Assessment → User Feedback → Performance Metrics
+   ```
 
-1. **Image Upload Flow**
-```
-User Upload → File Validation → Image Preprocessing → Enhancement Queue
-```
+2. **Analysis Pipeline**
+   ```
+   Metric Collection → Trend Analysis → Parameter Impact → Optimization Strategy
+   ```
 
-2. **Enhancement Pipeline**
-```
-Input Image → Super Resolution → Color Enhancement → Detail Enhancement → Final Output
-```
+3. **Model Updates**
+   ```
+   Strategy Selection → Parameter Adjustment → Validation → Deployment
+   ```
 
-3. **Quality Verification Flow**
-```
-Enhanced Image → Resolution Check → Color Check → Quality Metrics → Verification Result
-```
+## Quality Metrics System
 
-## Configuration
+### Metric Categories
 
-### Quality Settings (config/5k_quality_settings.yaml)
-- Resolution requirements
-- Color specifications
-- Quality thresholds
-- Processing parameters
+1. **Image Quality**
+   - PSNR (Peak Signal-to-Noise Ratio)
+   - SSIM (Structural Similarity Index)
+   - MSE (Mean Squared Error)
+   - LPIPS (Learned Perceptual Image Patch Similarity)
 
-### System Requirements
-- Python 3.8+
-- OpenCV
-- Streamlit
-- Required packages in requirements.txt
+2. **Color Accuracy**
+   - Color space accuracy
+   - Gamut coverage
+   - White balance accuracy
+   - Color consistency
 
-## Directory Structure
-```
-.
-├── README.md
-├── assets
-├── config
-│   └── 5k_quality_settings.yaml
-├── create_test_image.py
-├── data
-├── docs
-│   ├── architecture.md
-│   └── quickstart.md
-├── enhance_and_verify.py
-├── enhanced_output.png
-├── enhanced_test.png
-├── models
-├── proj_setup.sh
-├── pytest.ini
-├── requirements.txt
-├── run.sh
-├── small_test.png
-├── src
-│   ├── __init__.py
-│   ├── __pycache__
-│   │   └── __init__.cpython-311.pyc
-│   ├── app.py
-│   ├── components
-│   │   ├── __init__.py
-│   │   ├── __pycache__
-│   │   │   ├── __init__.cpython-311.pyc
-│   │   │   └── file_uploader.cpython-311.pyc
-│   │   └── file_uploader.py
-│   ├── config
-│   │   └── settings.py
-│   ├── streamlit_app.py
-│   └── utils
-│       ├── __init__.py
-│       ├── __pycache__
-│       │   ├── __init__.cpython-311.pyc
-│       │   └── image_processor.cpython-311.pyc
-│       ├── core
-│       │   ├── __init__.py
-│       │   ├── __pycache__
-│       │   └── base_model.py
-│       ├── image_processor.py
-│       └── models
-│           ├── __init__.py
-│           ├── __pycache__
-│           ├── color_enhancement.py
-│           ├── detail_enhancement.py
-│           └── super_resolution.py
-├── streamlit_app.py
-├── temp_uploads
-├── test_enhance.py
-├── test_image.png
-├── test_image_5k.png
-├── tests
-│   ├── __init__.py
-│   ├── __pycache__
-│   │   ├── __init__.cpython-311.pyc
-│   │   └── test_image_processor.cpython-311-pytest-7.4.0.pyc
-│   ├── data
-│   │   ├── create_test_image.py
-│   │   └── test_image.jpg
-│   └── test_image_processor.py
-├── venv
-│   ├── bin
-│   │   ├── Activate.ps1
-│   │   ├── activate
-│   │   ├── activate.csh
-│   │   ├── activate.fish
-│   │   ├── black
-│   │   ├── blackd
-│   │   ├── convert-caffe2-to-onnx
-│   │   ├── convert-onnx-to-caffe2
-│   │   ├── coverage
-│   │   ├── coverage-3.11
-│   │   ├── coverage3
-│   │   ├── f2py
-│   │   ├── get_gprof
-│   │   ├── get_objgraph
-│   │   ├── httpx
-│   │   ├── huggingface-cli
-│   │   ├── isort
-│   │   ├── isort-identify-imports
-│   │   ├── isympy
-│   │   ├── jsonschema
-│   │   ├── markdown-it
-│   │   ├── normalizer
-│   │   ├── pip
-│   │   ├── pip3
-│   │   ├── pip3.11
-│   │   ├── playwright
-│   │   ├── py.test
-│   │   ├── pygmentize
-│   │   ├── pylint
-│   │   ├── pylint-config
-│   │   ├── pyreverse
-│   │   ├── pytest
-│   │   ├── python -> python3.11
-│   │   ├── python3 -> python3.11
-│   │   ├── python3.11 -> /Library/Frameworks/Python.framework/Versions/3.11/bin/python3.11
-│   │   ├── slugify
-│   │   ├── streamlit
-│   │   ├── streamlit.cmd
-│   │   ├── super-image
-│   │   ├── symilar
-│   │   ├── torchfrtrace
-│   │   ├── torchrun
-│   │   ├── tqdm
-│   │   ├── undill
-│   │   └── uvicorn
-│   ├── etc
-│   │   └── jupyter
-│   │       └── nbconfig
-│   ├── include
-│   │   ├── python3.11
-│   │   └── site
-│   │       └── python3.11
-│   ├── lib
-│   │   └── python3.11
-│   │       └── site-packages
-│   ├── pyvenv.cfg
-│   └── share
-│       ├── jupyter
-│       │   └── nbextensions
-│       └── man
-│           └── man1
-├── verification_results.json
-├── verify_and_fix.sh
-├── verify_deployment.py
-└── verify_quality.py
+3. **Detail Preservation**
+   - Edge sharpness
+   - Texture preservation
+   - Detail recovery
+   - Noise characteristics
 
-38 directories, 92 files
-```
+4. **Performance Metrics**
+   - Processing time
+   - Memory usage
+   - GPU utilization
+   - Enhancement success rate
 
-## Enhancement Process Details
+### Quality Assessment Pipeline
 
-### 1. Super Resolution Enhancement
-```
-Input Image → Noise Reduction → Incremental Upscaling → Detail Preservation → Output
-```
-- Uses Lanczos resampling for quality preservation
-- Applies adaptive sharpening at each step
-- Maintains aspect ratio during scaling
+1. **Pre-enhancement**
+   ```
+   Input Analysis → Quality Baseline → Enhancement Planning → Resource Allocation
+   ```
 
-### 2. Color Enhancement
-```
-RGB → LAB Conversion → Channel Enhancement → Contrast Adjustment → RGB Output
-```
-- Processes in LAB color space for better color handling
-- Applies CLAHE for contrast enhancement
-- Preserves natural color balance
+2. **During Enhancement**
+   ```
+   Progress Monitoring → Quality Checks → Resource Management → Adjustment Triggers
+   ```
 
-### 3. Detail Enhancement
-```
-Input → Noise Reduction → Multi-scale Processing → Detail Recovery → Output
-```
-- Uses multiple color spaces (LAB, YUV)
-- Applies adaptive detail enhancement
-- Preserves edges while reducing noise
+3. **Post-enhancement**
+   ```
+   Final Validation → Metric Computation → Quality Report → Feedback Collection
+   ```
 
-## Error Handling
+## Deployment Architecture
 
-1. **Input Validation**
-   - File format checking
-   - Size limitations
-   - Color space verification
+### Streamlit.io Integration
 
-2. **Processing Errors**
-   - Memory management
-   - Processing pipeline recovery
-   - User feedback
+1. **Environment Setup**
+   - Runtime configuration
+   - Dependency management
+   - Resource allocation
+   - Cache configuration
 
-3. **Quality Assurance**
-   - Resolution verification
-   - Color depth checking
-   - Quality metrics validation
+2. **State Management**
+   - Session persistence
+   - Model state handling
+   - User preferences
+   - Enhancement history
 
-## Performance Considerations
+3. **Resource Management**
+   - Memory optimization
+   - Processing queues
+   - Cache strategies
+   - Load balancing
 
-1. **Memory Management**
-   - Batch processing for large images
-   - Resource cleanup
-   - Progressive loading
+### Deployment Pipeline
+
+1. **Build Process**
+   ```
+   Code Verification → Dependency Resolution → Asset Compilation → Package Creation
+   ```
+
+2. **Deployment Flow**
+   ```
+   Environment Setup → Configuration → Model Loading → Service Start
+   ```
+
+3. **Monitoring System**
+   ```
+   Performance Tracking → Error Detection → Resource Monitoring → Status Updates
+   ```
+
+## Testing Architecture
+
+### Test Categories
+
+1. **Unit Tests**
+   - Component functionality
+   - Error handling
+   - Edge cases
+   - Performance boundaries
+
+2. **Integration Tests**
+   - Component interactions
+   - Data flow
+   - State management
+   - Error propagation
+
+3. **System Tests**
+   - End-to-end workflows
+   - Performance benchmarks
+   - Resource utilization
+   - Failure recovery
+
+4. **Quality Tests**
+   - Enhancement quality
+   - Metric accuracy
+   - Learning effectiveness
+   - User experience
+
+### Test Coverage Strategy
+
+1. **Core Components**
+   - Image processing: 90%
+   - Quality metrics: 85%
+   - Model management: 85%
+   - Session handling: 80%
+
+2. **Enhancement Models**
+   - Super resolution: 90%
+   - Color enhancement: 85%
+   - Detail enhancement: 85%
+   - Learning system: 80%
+
+3. **Support Systems**
+   - File handling: 75%
+   - Error management: 75%
+   - Logging system: 70%
+   - Configuration: 70%
+
+[Previous Development Progress and Context section remains unchanged]
+
+## Performance Optimization
+
+### Memory Management
+
+1. **Resource Allocation**
+   - Dynamic memory allocation
+   - Cache management
+   - Garbage collection
+   - Resource pooling
 
 2. **Processing Optimization**
-   - Multi-step enhancement
-   - Efficient color space conversions
-   - Optimized algorithms
-
-## Future Enhancements
-
-1. **Potential Improvements**
+   - Batch processing
+   - Parallel execution
    - GPU acceleration
-   - Additional enhancement models
-   - Batch processing support
-   - Custom model training
+   - Load distribution
 
-2. **Scalability**
-   - Distributed processing
-   - Cloud integration
-   - API development
+3. **Cache Strategy**
+   - Model caching
+   - Result caching
+   - Parameter caching
+   - Session caching
 
-## Usage Guidelines
+### GPU Acceleration
 
-1. **Best Practices**
-   - Recommended image sizes
-   - Optimal model combinations
-   - Quality settings
+1. **Processing Pipeline**
+   - Model execution
+   - Image processing
+   - Quality computation
+   - Batch operations
 
-2. **Common Issues**
-   - Troubleshooting steps
-   - Performance optimization
-   - Error resolution
+2. **Resource Management**
+   - Memory transfers
+   - Compute scheduling
+   - Multi-GPU support
+   - Load balancing
 
-## Development Guidelines
+3. **Optimization Techniques**
+   - Kernel optimization
+   - Memory coalescing
+   - Stream processing
+   - Async operations
 
-1. **Code Standards**
-   - PEP 8 compliance
-   - Documentation requirements
-   - Testing procedures
+## Security Architecture
 
-2. **Contributing**
-   - Setup instructions
-   - Testing requirements
-   - PR guidelines
+### Data Protection
 
-This architecture document serves as a comprehensive guide for both users and developers, providing clear insights into the system's structure, functionality, and future development path.
+1. **Input Validation**
+   - File validation
+   - Size limits
+   - Format verification
+   - Content scanning
+
+2. **Session Security**
+   - State protection
+   - Token management
+   - Access control
+   - Data isolation
+
+3. **Output Protection**
+   - Result validation
+   - Safe storage
+   - Secure delivery
+   - Cleanup procedures
+
+[Token Management section remains unchanged]

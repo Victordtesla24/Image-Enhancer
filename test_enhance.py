@@ -1,43 +1,50 @@
+"""Test script for image enhancement"""
+
+import logging
 from PIL import Image
 from src.utils.image_processor import ImageEnhancer
-import torch
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 
-def main():
-    # Initialize the enhancer
-    enhancer = ImageEnhancer()
+def test_enhancement():
+    """Test image enhancement functionality"""
+    try:
+        # Initialize enhancer
+        enhancer = ImageEnhancer()
 
-    # Load and prepare test image
-    input_image = Image.open("test_image.png")
+        # Load test image
+        input_image = Image.open("small_test.png")
+        logger.info(f"Loaded test image: {input_image.size}")
 
-    # First enhance with detail preservation
-    print("Enhancing image...")
-    enhanced_image, details = enhancer.enhance_image(
-        input_image,
-        target_width=1920,  # Full HD resolution for optimal quality
-        models=["detail", "superres"],  # Focus on detail first, then resolution
-    )
+        # Define enhancement models to use
+        models = ["Super Resolution", "Color Enhancement", "Detail Enhancement"]
 
-    # Then enhance color while preserving contrast
-    enhanced_image, color_details = enhancer.enhance_image(
-        enhanced_image,
-        target_width=1920,
-        models=["color"],  # Separate color enhancement pass
-    )
+        # Process image
+        logger.info("Starting enhancement process...")
+        enhanced_image, details = enhancer.enhance_image(
+            input_image, target_width=5120, models=models  # 5K width
+        )
 
-    # Save with maximum quality
-    enhanced_image.save("enhanced_output.png", quality=100, optimize=False)
+        # Save result
+        enhanced_image.save("enhanced_test.png")
+        logger.info(f"Enhancement completed. Details: {details}")
 
-    print("\nEnhancement details:")
-    print(f"Source size: {details['source_size']}")
-    print(f"Final size: {enhanced_image.size[0]}x{enhanced_image.size[1]}")
-    print(
-        f"Total processing time: {float(details['processing_time'].rstrip('s')) + float(color_details['processing_time'].rstrip('s')):.2f}s"
-    )
-    print("\nModels used:")
-    for model in details["models_used"] + color_details["models_used"]:
-        print(f"- {model['name']}: {model['description']}")
+        return True, details
+
+    except Exception as e:
+        logger.error(f"Enhancement failed: {str(e)}")
+        return False, str(e)
 
 
 if __name__ == "__main__":
-    main()
+    success, result = test_enhancement()
+    if success:
+        print("Enhancement successful!")
+        print("Enhancement details:")
+        for key, value in result.items():
+            print(f"{key}: {value}")
+    else:
+        print(f"Enhancement failed: {result}")
