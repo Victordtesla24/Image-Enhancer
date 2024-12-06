@@ -1,0 +1,17 @@
+{
+  "session_id": "20241206_134900",
+  "quality_preferences": {
+    "min_resolution": [
+      5120,
+      2880
+    ],
+    "min_dpi": 300,
+    "min_sharpness": 70.0,
+    "max_noise_level": 120.0,
+    "min_dynamic_range": 220,
+    "color_depth": 24,
+    "min_file_size_mb": 1.5
+  },
+  "enhancement_attempts": [],
+  "current_image_hash": null
+}

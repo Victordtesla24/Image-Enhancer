@@ -1,237 +1,166 @@
-"""Test suite for model management system"""
+"""Test suite for AI enhancement model management"""
 
-import os
 import pytest
-import json
-from pathlib import Path
 import numpy as np
-from src.utils.model_management.model_manager import (
-    ModelManager,
-    ModelState,
-    EnhancementHistory
-)
+import torch
+from pathlib import Path
+import shutil
+from src.utils.model_management.model_manager import ModelManager
+from src.utils.quality_management.quality_manager import QualityManager
+
+@pytest.fixture
+def test_image():
+    """Create test image"""
+    return np.random.rand(512, 512, 3).astype(np.float32)
+
+@pytest.fixture
+def test_5k_image():
+    """Create 5K test image"""
+    return np.random.rand(2880, 5120, 3).astype(np.float32)
 
 @pytest.fixture
 def model_manager():
-    """Create ModelManager instance with test session ID"""
-    manager = ModelManager("test_session")
+    """Create ModelManager instance"""
+    manager = ModelManager()
     yield manager
-    # Cleanup test files
-    history_file = Path("models/history") / "history_test_session.json"
-    if history_file.exists():
-        history_file.unlink()
-    if Path("models/history").exists():
-        Path("models/history").rmdir()
-    if Path("models").exists():
-        Path("models").rmdir()
+    # Cleanup is handled by the manager's __del__ method
+    manager.cleanup()
 
-def test_model_initialization(model_manager):
-    """Test model manager initialization"""
-    assert model_manager.session_id == "test_session"
-    assert isinstance(model_manager.models_state, dict)
-    assert "super_resolution" in model_manager.models_state
-    assert "color_enhancement" in model_manager.models_state
-    assert "detail_enhancement" in model_manager.models_state
+@pytest.fixture
+def quality_manager():
+    """Create QualityManager instance"""
+    return QualityManager()
 
-def test_model_parameters(model_manager):
-    """Test model parameter management"""
-    # Get initial parameters
-    params = model_manager.get_model_parameters("super_resolution")
-    assert isinstance(params, dict)
-    assert "scale_factor" in params
-    assert "denoise_strength" in params
-    
-    # Update parameters
-    new_params = {"scale_factor": 3.0}
-    model_manager.update_model_parameters("super_resolution", new_params)
-    
-    # Verify update
-    updated_params = model_manager.get_model_parameters("super_resolution")
-    assert updated_params["scale_factor"] == 3.0
+class TestEnhancementModels:
+    def test_model_initialization(self, model_manager):
+        """Test enhancement model initialization"""
+        # Verify models are initialized
+        assert 'super_resolution' in model_manager.models
+        assert 'detail' in model_manager.models
+        assert 'color' in model_manager.models
+        
+        # Verify model states
+        assert 'super_resolution' in model_manager.models_state
+        assert 'detail' in model_manager.models_state
+        assert 'color' in model_manager.models_state
 
-def test_enhancement_history_recording(model_manager):
-    """Test recording enhancement history"""
-    model_manager.record_enhancement_attempt(
-        model_name="super_resolution",
-        parameters={"scale_factor": 2.0},
-        quality_metrics={"psnr": 30.0},
-        success=True,
-        feedback="Good enhancement"
-    )
-    
-    state = model_manager.models_state["super_resolution"]
-    assert len(state.enhancement_history) == 1
-    history = state.enhancement_history[0]
-    assert history.model_name == "super_resolution"
-    assert history.parameters["scale_factor"] == 2.0
-    assert history.quality_metrics["psnr"] == 30.0
-    assert history.success is True
-    assert history.feedback == "Good enhancement"
+    def test_enhancement_quality(self, model_manager, quality_manager, test_image):
+        """Test enhancement quality for each model"""
+        for model_name in model_manager.models:
+            # Get initial quality metrics
+            initial_metrics = quality_manager.calculate_metrics(test_image)
+            
+            # Apply enhancement
+            enhanced = model_manager.enhance(model_name, test_image)
+            
+            # Get enhanced quality metrics
+            enhanced_metrics = quality_manager.calculate_metrics(enhanced)
+            
+            # Verify quality improvement
+            assert enhanced_metrics['sharpness'] >= initial_metrics['sharpness']
+            assert enhanced_metrics['color_accuracy'] >= initial_metrics['color_accuracy']
+            assert enhanced_metrics['detail_preservation'] >= initial_metrics['detail_preservation']
 
-def test_performance_metrics_update(model_manager):
-    """Test performance metrics updating"""
-    # Record multiple attempts
-    for psnr in [28.0, 30.0, 32.0]:
+    def test_parameter_adaptation(self, model_manager, quality_manager, test_image):
+        """Test model parameter adaptation based on quality feedback"""
+        feedback_history = [
+            {
+                'sharpness_satisfaction': 0.8,
+                'color_satisfaction': 0.7,
+                'detail_satisfaction': 0.6
+            }
+        ]
+        
+        # Record initial parameters
+        initial_params = {
+            name: model_manager.get_model_parameters(name)
+            for name in model_manager.models
+        }
+        
+        # Apply feedback
+        model_manager.adapt_to_feedback(feedback_history)
+        
+        # Verify parameters were updated
+        for name in model_manager.models:
+            new_params = model_manager.get_model_parameters(name)
+            assert new_params != initial_params[name]
+
+    def test_enhancement_history(self, model_manager, quality_manager, test_image):
+        """Test enhancement history tracking"""
+        model_name = 'super_resolution'
+        
+        # Record multiple enhancement attempts
+        for _ in range(3):
+            enhanced = model_manager.enhance(model_name, test_image)
+            metrics = quality_manager.calculate_metrics(enhanced)
+            
+            model_manager.record_enhancement_attempt(
+                model_name=model_name,
+                parameters=model_manager.get_model_parameters(model_name),
+                quality_metrics=metrics,
+                success=True
+            )
+        
+        # Verify history
+        state = model_manager.models_state[model_name]
+        assert len(state.enhancement_history) == 3
+        assert state.performance_metrics['success_rate'] == 1.0
+
+    def test_real_time_adjustment(self, model_manager, quality_manager, test_image):
+        """Test real-time parameter adjustment"""
+        model_name = 'super_resolution'
+        
+        # Test different parameter adjustments
+        adjustments = [
+            {'sharpness': 0.8, 'detail_level': 0.7},
+            {'sharpness': 0.6, 'detail_level': 0.9},
+            {'sharpness': 0.7, 'detail_level': 0.8}
+        ]
+        
+        for params in adjustments:
+            # Update parameters
+            model_manager.update_parameters(model_name, params)
+            
+            # Verify parameters were updated
+            current_params = model_manager.get_model_parameters(model_name)
+            for key, value in params.items():
+                assert abs(current_params[key] - value) < 0.01
+
+    def test_enhancement_consistency(self, model_manager, quality_manager, test_image):
+        """Test consistency of enhancement results"""
+        model_name = 'super_resolution'
+        results = []
+        
+        # Perform multiple enhancements
+        for _ in range(3):
+            enhanced = model_manager.enhance(model_name, test_image)
+            metrics = quality_manager.calculate_metrics(enhanced)
+            results.append(metrics)
+        
+        # Verify consistency
+        for i in range(1, len(results)):
+            assert abs(results[i]['sharpness'] - results[0]['sharpness']) < 0.1
+            assert abs(results[i]['color_accuracy'] - results[0]['color_accuracy']) < 0.1
+            assert abs(results[i]['detail_preservation'] - results[0]['detail_preservation']) < 0.1
+
+    def test_history_persistence(self, model_manager, quality_manager, test_image):
+        """Test history saving and loading"""
+        model_name = 'super_resolution'
+        
+        # Record enhancement attempt
+        enhanced = model_manager.enhance(model_name, test_image)
+        metrics = quality_manager.calculate_metrics(enhanced)
+        
         model_manager.record_enhancement_attempt(
-            model_name="super_resolution",
-            parameters={"scale_factor": 2.0},
-            quality_metrics={"psnr": psnr},
+            model_name=model_name,
+            parameters=model_manager.get_model_parameters(model_name),
+            quality_metrics=metrics,
             success=True
         )
-    
-    metrics = model_manager.models_state["super_resolution"].performance_metrics
-    assert metrics["success_rate"] == 1.0
-    assert metrics["psnr"] == 30.0  # Average of last 10 attempts
-
-def test_parameter_adaptation(model_manager):
-    """Test parameter adaptation based on feedback"""
-    # Record successful attempts
-    model_manager.record_enhancement_attempt(
-        model_name="super_resolution",
-        parameters={"scale_factor": 2.0},
-        quality_metrics={"psnr": 30.0},
-        success=True
-    )
-    
-    # Apply feedback
-    feedback = {"scale_factor": 1}  # Increase scale factor
-    model_manager.adapt_parameters("super_resolution", feedback)
-    
-    # Verify adaptation
-    params = model_manager.get_model_parameters("super_resolution")
-    assert params["scale_factor"] > 2.0
-
-def test_history_persistence(model_manager):
-    """Test history persistence"""
-    # Record attempt
-    model_manager.record_enhancement_attempt(
-        model_name="super_resolution",
-        parameters={"scale_factor": 2.0},
-        quality_metrics={"psnr": 30.0},
-        success=True
-    )
-    
-    # Create new manager with same session
-    new_manager = ModelManager("test_session")
-    new_manager.load_history("test_session")
-    
-    state = new_manager.models_state["super_resolution"]
-    assert len(state.enhancement_history) == 1
-    history = state.enhancement_history[0]
-    assert history.parameters["scale_factor"] == 2.0
-
-def test_enhancement_suggestions(model_manager):
-    """Test enhancement suggestions generation"""
-    # Record successful attempts with different parameters
-    model_manager.record_enhancement_attempt(
-        model_name="super_resolution",
-        parameters={"scale_factor": 2.0},
-        quality_metrics={"psnr": 30.0},
-        success=True
-    )
-    model_manager.record_enhancement_attempt(
-        model_name="super_resolution",
-        parameters={"scale_factor": 2.5},
-        quality_metrics={"psnr": 32.0},
-        success=True
-    )
-    
-    suggestions = model_manager.get_enhancement_suggestions("super_resolution")
-    assert isinstance(suggestions, dict)
-    assert "scale_factor" in suggestions
-    assert 2.0 <= suggestions["scale_factor"] <= 2.5
-
-def test_learning_rate_adjustment(model_manager):
-    """Test learning rate adjustment"""
-    initial_lr = model_manager.models_state["super_resolution"].learning_rate
-    
-    # Record multiple successful attempts
-    for _ in range(5):
-        model_manager.record_enhancement_attempt(
-            model_name="super_resolution",
-            parameters={"scale_factor": 2.0},
-            quality_metrics={"psnr": 30.0},
-            success=True
-        )
-    
-    # Apply feedback multiple times
-    feedback = {"scale_factor": 1}
-    for _ in range(3):
-        model_manager.adapt_parameters("super_resolution", feedback)
-    
-    current_lr = model_manager.models_state["super_resolution"].learning_rate
-    assert current_lr != initial_lr
-
-def test_model_state_management(model_manager):
-    """Test model state management"""
-    # Initialize new model state
-    state = ModelState(
-        name="test_model",
-        parameters={"param1": 1.0},
-        performance_metrics={"metric1": 0.0},
-        enhancement_history=[]
-    )
-    
-    # Add to manager
-    model_manager.models_state["test_model"] = state
-    
-    # Verify state
-    assert "test_model" in model_manager.models_state
-    assert model_manager.models_state["test_model"].parameters["param1"] == 1.0
-
-def test_error_handling(model_manager):
-    """Test error handling"""
-    # Test invalid model name
-    with pytest.raises(KeyError):
-        model_manager.get_model_parameters("invalid_model")
-    
-    # Test invalid parameters
-    with pytest.raises(Exception):
-        model_manager.update_model_parameters("super_resolution", None)
-
-def test_performance_tracking(model_manager):
-    """Test performance tracking"""
-    # Record attempts with varying success
-    successes = [True, True, False, True]
-    for success in successes:
-        model_manager.record_enhancement_attempt(
-            model_name="super_resolution",
-            parameters={"scale_factor": 2.0},
-            quality_metrics={"psnr": 30.0},
-            success=success
-        )
-    
-    metrics = model_manager.models_state["super_resolution"].performance_metrics
-    assert metrics["success_rate"] == 0.75  # 3/4 successful attempts
-
-def test_model_adaptation_limits(model_manager):
-    """Test model parameter adaptation limits"""
-    # Try to adapt parameters beyond reasonable limits
-    model_manager.record_enhancement_attempt(
-        model_name="super_resolution",
-        parameters={"scale_factor": 4.5},  # Already high
-        quality_metrics={"psnr": 30.0},
-        success=True
-    )
-    
-    feedback = {"scale_factor": 1}  # Try to increase further
-    model_manager.adapt_parameters("super_resolution", feedback)
-    
-    params = model_manager.get_model_parameters("super_resolution")
-    assert params["scale_factor"] <= 5.0  # Should be capped
-
-def test_history_cleanup(model_manager):
-    """Test history cleanup"""
-    # Record some attempts
-    model_manager.record_enhancement_attempt(
-        model_name="super_resolution",
-        parameters={"scale_factor": 2.0},
-        quality_metrics={"psnr": 30.0},
-        success=True
-    )
-    
-    # Verify history file exists
-    history_file = Path("models/history") / f"history_{model_manager.session_id}.json"
-    assert history_file.exists()
-    
-    # Cleanup happens in fixture
+        
+        # Create new manager and load history
+        new_manager = ModelManager(model_manager.session_id)
+        success = new_manager.load_history(model_manager.session_id)
+        
+        assert success
+        assert len(new_manager.models_state[model_name].enhancement_history) == 1

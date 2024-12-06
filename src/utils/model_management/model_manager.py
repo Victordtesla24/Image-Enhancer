@@ -4,19 +4,21 @@ import logging
 import torch
 import json
 import os
+import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 import numpy as np
+from ..models.super_resolution import SuperResolutionModel
+from ..models.detail_enhancement import DetailEnhancementModel
+from ..models.color_enhancement import ColorEnhancementModel
 
 logger = logging.getLogger(__name__)
-
 
 @dataclass
 class EnhancementHistory:
     """Track enhancement attempts and results"""
-
     timestamp: str
     model_name: str
     parameters: Dict
@@ -24,58 +26,60 @@ class EnhancementHistory:
     success: bool
     feedback: Optional[str] = None
 
-
 @dataclass
 class ModelState:
     """Track model state and performance"""
-
     name: str
     parameters: Dict
     performance_metrics: Dict
     enhancement_history: List[EnhancementHistory]
     learning_rate: float = 0.001
 
-
 class ModelManager:
     """Manages AI models, their states, and learning processes"""
 
     def __init__(self, session_id: str = None):
         self.session_id = session_id or datetime.now().strftime("%Y%m%d_%H%M%S")
-        self.models_state: Dict[str, ModelState] = {}
         self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        
+        # Initialize models
+        self.models = {
+            'super_resolution': SuperResolutionModel(),
+            'detail': DetailEnhancementModel(),
+            'color': ColorEnhancementModel()
+        }
+        
+        # Load models
+        for model in self.models.values():
+            model.load()
+        
+        # Initialize model states
+        self.models_state: Dict[str, ModelState] = {}
+        self._initialize_models()
+        
+        # Setup history directory
         self.history_dir = Path("models/history")
         self.history_dir.mkdir(parents=True, exist_ok=True)
-
-        # Initialize model states
-        self._initialize_models()
 
     def _initialize_models(self):
         """Initialize model states with default parameters"""
         default_models = {
             "super_resolution": {
                 "parameters": {
+                    "sharpness": 0.7,
+                    "detail_level": 0.7,
+                    "color_boost": 0.7,
                     "scale_factor": 4.0,
                     "denoise_strength": 0.5,
                     "detail_preservation": 0.8,
                 },
                 "performance_metrics": {"psnr": 0.0, "ssim": 0.0, "success_rate": 0.0},
             },
-            "color_enhancement": {
+            "detail": {
                 "parameters": {
-                    "saturation": 1.2,
-                    "contrast": 1.15,
-                    "brightness": 1.1,
-                    "color_balance": 1.0,
-                },
-                "performance_metrics": {
-                    "color_accuracy": 0.0,
-                    "contrast_score": 0.0,
-                    "success_rate": 0.0,
-                },
-            },
-            "detail_enhancement": {
-                "parameters": {
-                    "sharpness": 1.3,
+                    "sharpness": 0.7,
+                    "detail_level": 0.7,
+                    "color_boost": 0.7,
                     "noise_reduction": 0.5,
                     "detail_boost": 1.2,
                     "edge_preservation": 0.8,
@@ -86,6 +90,21 @@ class ModelManager:
                     "success_rate": 0.0,
                 },
             },
+            "color": {
+                "parameters": {
+                    "sharpness": 0.7,
+                    "detail_level": 0.7,
+                    "color_boost": 0.7,
+                    "saturation": 1.2,
+                    "contrast": 1.15,
+                    "brightness": 1.1,
+                },
+                "performance_metrics": {
+                    "color_accuracy": 0.0,
+                    "contrast_score": 0.0,
+                    "success_rate": 0.0,
+                },
+            }
         }
 
         for model_name, config in default_models.items():
@@ -95,14 +114,42 @@ class ModelManager:
                 performance_metrics=config["performance_metrics"],
                 enhancement_history=[],
             )
+            # Initialize model parameters
+            if model_name in self.models:
+                self.models[model_name].update_parameters(config["parameters"])
 
     def get_model_parameters(self, model_name: str) -> Dict:
         """Get current parameters for a model"""
         return self.models_state[model_name].parameters.copy()
 
-    def update_model_parameters(self, model_name: str, parameters: Dict):
+    def update_parameters(self, model_name: str, parameters: Dict):
         """Update model parameters"""
-        self.models_state[model_name].parameters.update(parameters)
+        current_params = self.models_state[model_name].parameters
+        for key, value in parameters.items():
+            if isinstance(value, (int, float)):
+                current_params[key] = value
+            elif isinstance(value, str) and value.startswith(('+', '-')):
+                # Handle incremental adjustments
+                try:
+                    delta = float(value)
+                    current_value = current_params.get(key, 0.0)
+                    current_params[key] = max(0.0, min(1.0, current_value + delta))
+                except ValueError:
+                    pass
+        
+        # Update model parameters
+        if model_name in self.models:
+            self.models[model_name].update_parameters(current_params)
+
+    def enhance(self, model_name: str, image: torch.Tensor) -> torch.Tensor:
+        """Enhance image using specified model"""
+        if model_name not in self.models:
+            raise ValueError(f"Model {model_name} not found")
+        try:
+            return self.models[model_name].enhance(image)
+        except Exception as e:
+            logger.error(f"Error in {model_name} enhancement: {str(e)}")
+            return image
 
     def record_enhancement_attempt(
         self,
@@ -141,43 +188,38 @@ class ModelManager:
             if metric_name != "success_rate":
                 metric_values = [m.get(metric_name, 0) for m in recent_metrics]
                 if metric_values:
-                    self.models_state[model_name].performance_metrics[metric_name] = (
-                        np.mean(metric_values)
-                    )
+                    self.models_state[model_name].performance_metrics[metric_name] = np.mean(metric_values)
 
-    def adapt_parameters(self, model_name: str, feedback: Dict):
-        """Adapt model parameters based on feedback"""
-        model_state = self.models_state[model_name]
-        history = model_state.enhancement_history
-
-        if not history:
+    def adapt_to_feedback(self, feedback_history: List[Dict]):
+        """Adapt model parameters based on feedback history"""
+        if not feedback_history:
             return
-
-        # Get recent successful attempts
-        successful_attempts = [h for h in history[-5:] if h.success]
-        if not successful_attempts:
-            return
-
-        # Calculate parameter adjustments based on feedback
-        for param_name, current_value in model_state.parameters.items():
-            if param_name in feedback:
-                direction = feedback[param_name]  # 1 for increase, -1 for decrease
-
-                # Calculate adjustment based on successful parameters
-                successful_values = [
-                    h.parameters.get(param_name, current_value)
-                    for h in successful_attempts
-                ]
-                mean_successful = np.mean(successful_values)
-
-                # Adjust parameter with learning rate
-                adjustment = direction * model_state.learning_rate * abs(current_value)
-                new_value = current_value + adjustment
-
-                # Apply bounds (assuming parameters should stay positive)
-                new_value = max(0.1, min(5.0, new_value))
-
-                model_state.parameters[param_name] = new_value
+            
+        for model_name in self.models:
+            model_state = self.models_state[model_name]
+            
+            # Calculate average feedback scores
+            avg_feedback = {
+                key: np.mean([f[key] for f in feedback_history if key in f])
+                for key in ['sharpness_satisfaction', 'color_satisfaction', 'detail_satisfaction']
+            }
+            
+            # Adjust parameters based on feedback
+            params = model_state.parameters.copy()
+            if 'sharpness_satisfaction' in avg_feedback:
+                params['sharpness'] = min(1.0, params.get('sharpness', 0.7) * 
+                                        (1 + (avg_feedback['sharpness_satisfaction'] - 0.5) * 0.2))
+                
+            if 'color_satisfaction' in avg_feedback:
+                params['color_boost'] = min(1.0, params.get('color_boost', 0.7) * 
+                                          (1 + (avg_feedback['color_satisfaction'] - 0.5) * 0.2))
+                
+            if 'detail_satisfaction' in avg_feedback:
+                params['detail_level'] = min(1.0, params.get('detail_level', 0.7) * 
+                                           (1 + (avg_feedback['detail_satisfaction'] - 0.5) * 0.2))
+            
+            # Update model parameters
+            self.update_parameters(model_name, params)
 
     def _save_history(self):
         """Save enhancement history to disk"""
@@ -207,31 +249,26 @@ class ModelManager:
             for model_name, data in history_data.items():
                 if model_name in self.models_state:
                     self.models_state[model_name].parameters = data["parameters"]
-                    self.models_state[model_name].performance_metrics = data[
-                        "performance_metrics"
-                    ]
+                    self.models_state[model_name].performance_metrics = data["performance_metrics"]
                     self.models_state[model_name].enhancement_history = [
                         EnhancementHistory(**h) for h in data["history"]
                     ]
+                    # Update model parameters
+                    if model_name in self.models:
+                        self.models[model_name].update_parameters(data["parameters"])
             return True
         except Exception as e:
             logger.error(f"Error loading history: {str(e)}")
             return False
 
-    def get_enhancement_suggestions(self, model_name: str) -> Dict:
-        """Get parameter suggestions based on successful enhancements"""
-        history = self.models_state[model_name].enhancement_history
-        if not history:
-            return self.get_model_parameters(model_name)
+    def cleanup(self):
+        """Clean up model resources and history"""
+        try:
+            if self.history_dir.exists():
+                shutil.rmtree(self.history_dir)
+        except Exception as e:
+            logger.error(f"Error during cleanup: {str(e)}")
 
-        successful_attempts = [h for h in history if h.success]
-        if not successful_attempts:
-            return self.get_model_parameters(model_name)
-
-        # Calculate average parameters from successful attempts
-        suggested_params = {}
-        for param_name in self.models_state[model_name].parameters:
-            values = [h.parameters.get(param_name, 0) for h in successful_attempts]
-            suggested_params[param_name] = np.mean(values)
-
-        return suggested_params
+    def __del__(self):
+        """Cleanup when object is destroyed"""
+        self.cleanup()

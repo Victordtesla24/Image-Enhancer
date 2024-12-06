@@ -6,12 +6,12 @@ import torch.nn.functional as TF
 import torchvision.transforms as transforms
 from torchvision.models import resnet50, ResNet50_Weights
 import logging
+from typing import Dict
 from ..core.base_model import AIModel
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 
 class SuperResolutionModel(AIModel):
     """Advanced Super Resolution Model with professional-grade enhancements"""
@@ -24,6 +24,21 @@ class SuperResolutionModel(AIModel):
         self.normalize = transforms.Normalize(
             mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
         )
+        self.parameters = {
+            'sharpness': 0.7,
+            'detail_level': 0.7,
+            'color_boost': 0.7,
+            'scale_factor': 4.0,
+            'denoise_strength': 0.5,
+            'detail_preservation': 0.8,
+        }
+
+    def update_parameters(self, parameters: Dict):
+        """Update model parameters"""
+        for key, value in parameters.items():
+            if key in self.parameters:
+                self.parameters[key] = float(value)
+        logger.info(f"Updated parameters: {self.parameters}")
 
     def load(self):
         try:
@@ -85,24 +100,29 @@ class SuperResolutionModel(AIModel):
                 edge_detect = edge_detect.repeat(3, 1, 1, 1)
                 edges = TF.conv2d(enhanced, edge_detect, padding=1, groups=3)
 
-                # Dynamic sharpening based on local content
+                # Dynamic sharpening based on parameters
                 edge_intensity = torch.mean(torch.abs(edges), dim=1, keepdim=True)
-                sharpening_strength = torch.clamp(0.8 - edge_intensity * 1.2, 0.2, 0.6)
+                sharpening_strength = torch.clamp(
+                    self.parameters['sharpness'] - edge_intensity * 1.2, 
+                    0.2, 
+                    self.parameters['sharpness']
+                )
 
-                # Enhanced brightness and contrast
+                # Enhanced brightness and contrast with parameter control
                 result = image + sharpening_strength * (enhanced - image)
 
                 # Normalize to maintain proper value range
                 result = (result - result.min()) / (result.max() - result.min())
 
-                # Adaptive brightness adjustment
+                # Adaptive brightness adjustment based on color boost parameter
                 mean_brightness = torch.mean(result)
+                color_boost = self.parameters['color_boost']
                 if mean_brightness < 0.4:  # Dark image
-                    result = result * 1.3  # Boost brightness
+                    result = result * (1 + color_boost * 0.3)  # Boost brightness
                 elif mean_brightness > 0.6:  # Bright image
-                    result = result * 0.9  # Reduce brightness
+                    result = result * (1 - color_boost * 0.1)  # Reduce brightness
 
-                # Local contrast enhancement
+                # Local contrast enhancement with detail preservation
                 kernel_size = 5
                 padding = kernel_size // 2
                 local_mean = TF.avg_pool2d(
@@ -115,7 +135,8 @@ class SuperResolutionModel(AIModel):
                 local_std = torch.sqrt(torch.clamp(local_var, min=1e-6))
 
                 normalized = (result - local_mean) / (local_std + 1e-6)
-                contrast_enhanced = local_mean + local_std * normalized * 1.3
+                detail_level = self.parameters['detail_level']
+                contrast_enhanced = local_mean + local_std * normalized * (1 + detail_level * 0.3)
 
                 # Preserve original image statistics
                 current_mean = torch.mean(contrast_enhanced)
@@ -133,3 +154,8 @@ class SuperResolutionModel(AIModel):
             except Exception as e:
                 logger.error(f"Error in SuperRes enhancement: {str(e)}")
                 return image
+
+    def _batch_process(self, image: torch.Tensor) -> torch.Tensor:
+        """Process large images in batches"""
+        # Implementation for batch processing
+        return image

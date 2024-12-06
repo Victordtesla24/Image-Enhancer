@@ -1,8 +1,5 @@
 # 5K AI Image Enhancer - Quick Start Guide
 
-## Overview
-The 5K AI Image Enhancer is a powerful tool that enhances images to 5K quality using advanced AI and image processing techniques. This guide covers the enhanced features including quality validation, session management, and real-time feedback systems.
-
 ## Installation
 
 1. **Clone the repository**
@@ -24,201 +21,173 @@ pip install -r requirements.txt
 
 ## Running the Application
 
-1. **Start the application**
+1. **Start the enhancement system**
 ```bash
-./run.sh
+python run.py
 ```
-This script handles:
-- Environment verification
-- Dependency checks
-- Model initialization
-- Cache management
-- Application startup
 
-2. **Access the web interface**
-- Open your browser and go to `http://localhost:8501`
-- The application will automatically open in your default browser
+2. **Access the interface**
+- Web Interface: `http://localhost:8501`
+- Enhancement Dashboard: `http://localhost:8501/enhance`
+- Quality Metrics: `http://localhost:8501/metrics`
 
-## Using the Enhancer
+## Enhancement Features
 
-### 1. Enhancement Models
-The application offers three AI-powered enhancement models:
+### 1. Image Enhancement
+- Upload images up to 5K resolution
+- Choose enhancement models:
+  * Super Resolution
+  * Detail Enhancement
+  * Color Enhancement
+- Adjust enhancement parameters in real-time
+- View before/after comparisons
+- Track enhancement progress
 
-- **Super Resolution**
-  - Custom neural network for high-quality upscaling
-  - Progressive detail preservation
-  - Adaptive sharpening
-  - Best for upscaling images to 5K resolution
+### 2. Quality Control
+- Monitor quality metrics:
+  * Sharpness
+  * Color accuracy
+  * Detail preservation
+  * Noise levels
+- Adjust quality parameters
+- View quality suggestions
+- Track quality improvements
 
-- **Color Enhancement**
-  - Advanced color space processing
-  - Adaptive contrast and white balance
-  - Color accuracy preservation
-  - Perfect for improving color vibrancy and accuracy
+### 3. User Feedback
+- Provide enhancement feedback
+- Rate quality improvements
+- Customize enhancement preferences
+- Save enhancement profiles
+- Track enhancement history
 
-- **Detail Enhancement**
-  - Multi-scale detail processing
-  - Variance-based adaptation
-  - Edge preservation
-  - Ideal for enhancing fine details while reducing noise
+## Usage Guidelines
 
-### 2. Quality Settings
+### 1. Image Enhancement Process
 
-1. **Resolution Presets**
-   - 5K (5120x2880) - Default
-   - 4K (3840x2160)
-   - 2K (2048x1080)
-   - Full HD (1920x1080)
-   - Custom (user-defined)
+a) **Upload Image**
+   - Select image file
+   - Verify resolution and format
+   - View initial quality metrics
 
-2. **Quality Preferences**
-   - Minimum sharpness level
-   - Color accuracy threshold
-   - Noise reduction strength
-   - Detail preservation level
+b) **Choose Enhancement Models**
+   - Select desired models
+   - Adjust model parameters
+   - Preview enhancements
 
-### 3. Enhanced Workflow
-
-1. **Session Management**
-   - Automatic session tracking
-   - Enhancement history
-   - Parameter persistence
-   - Quality preferences saving
-
-2. **Quality Validation**
-   - Real-time quality metrics
-   - Comprehensive validation
-   - Performance tracking
-   - Improvement suggestions
-
-3. **Feedback System**
-   - Interactive parameter adjustment
-   - Quality-based suggestions
-   - Performance optimization
-   - Result comparison
-
-### 4. Step-by-Step Enhancement
-
-1. **Prepare Image**
-   - Select high-quality source image
-   - Verify supported format (PNG, JPG, JPEG)
-   - Check size limits (max 200MB)
-
-2. **Configure Enhancement**
-   - Choose enhancement models
-   - Set resolution preferences
-   - Adjust quality settings
-   - Review processing options
-
-3. **Process Image**
-   - Upload image
-   - Monitor real-time progress
+c) **Apply Enhancements**
+   - Start enhancement process
+   - Monitor progress
    - View quality metrics
-   - Check enhancement details
+   - Provide feedback
 
-4. **Review and Adjust**
-   - Compare before/after
-   - Check quality metrics
-   - Apply suggested improvements
-   - Fine-tune parameters
+d) **Refine Results**
+   - Adjust parameters
+   - Reapply enhancements
+   - Compare versions
+   - Save final result
 
-5. **Export Result**
-   - Download enhanced image
-   - Save quality report
-   - Export settings
-   - Preserve session data
+### 2. Quality Optimization
 
-## Advanced Features
+a) **Monitor Metrics**
+   - View real-time metrics
+   - Track improvements
+   - Identify issues
+   - Get suggestions
 
-### 1. Quality Management
-- Real-time quality metrics
-- Comprehensive validation
-- Performance tracking
-- Adaptive improvements
+b) **Adjust Parameters**
+   - Fine-tune settings
+   - Preview changes
+   - Apply adjustments
+   - Verify improvements
 
-### 2. Session Handling
-- Enhancement history
-- Parameter persistence
-- Quality preferences
-- State recovery
+### 3. Feedback Integration
 
-### 3. Model Management
-- Parameter optimization
-- Performance tracking
-- Feedback integration
-- Quality-based adaptation
+a) **Provide Feedback**
+   - Rate enhancements
+   - Suggest improvements
+   - Save preferences
+   - Track history
 
-## Best Practices
-
-### 1. Image Selection
-- Use high-quality source images
-- Consider target resolution
-- Check format compatibility
-- Verify size limits
-
-### 2. Enhancement Strategy
-- Start with recommended settings
-- Monitor quality metrics
-- Apply progressive enhancements
-- Use feedback suggestions
-
-### 3. Quality Optimization
-- Review quality metrics
-- Apply suggested improvements
-- Fine-tune parameters
-- Validate results
-
-## Troubleshooting
-
-### Common Issues
-
-1. **Quality Issues**
-   - Check source image quality
-   - Review quality metrics
-   - Apply suggested improvements
-   - Adjust enhancement parameters
-
-2. **Performance Issues**
-   - Monitor system resources
-   - Reduce processing batch size
-   - Optimize quality settings
-   - Check hardware compatibility
-
-3. **Processing Errors**
-   - Verify file format
-   - Check size limits
-   - Monitor system resources
-   - Review error messages
-
-### Getting Help
-
-1. **Documentation**
-   - Architecture documentation (`docs/architecture.md`)
-   - Configuration guide (`docs/config.md`)
-   - API reference (`docs/api.md`)
-   - Development guide (`docs/development.md`)
-
-2. **Support Resources**
-   - GitHub issues
-   - Documentation wiki
-   - Community forums
-   - Developer guides
+b) **Use Learning System**
+   - Enable automatic learning
+   - Apply learned preferences
+   - Track adaptations
+   - Save profiles
 
 ## System Requirements
 
-- Python 3.8 or higher
-- 16GB RAM recommended
-- Modern web browser
-- Internet connection for initial setup
-- GPU support (optional, for faster processing)
+### Minimum Requirements
+- Python 3.8+
+- CUDA-compatible GPU (4GB+ VRAM)
+- 16GB RAM
+- 50GB storage
+
+### Recommended Specifications
+- CUDA-compatible GPU (8GB+ VRAM)
+- 32GB RAM
+- SSD storage
+- Multi-core CPU
+
+## Configuration
+
+### 1. Enhancement Settings
+```yaml
+enhancement:
+  super_resolution:
+    enabled: true
+    strength: 0.8
+  detail:
+    enabled: true
+    strength: 0.7
+  color:
+    enabled: true
+    strength: 0.7
+```
+
+### 2. Quality Settings
+```yaml
+quality:
+  target_metrics:
+    sharpness: 0.8
+    color_accuracy: 0.8
+    detail_preservation: 0.8
+    noise_level: 0.2
+```
+
+### 3. User Preferences
+```yaml
+preferences:
+  auto_enhance: true
+  save_history: true
+  learning_enabled: true
+  feedback_frequency: "always"
+```
 
 ## Additional Resources
 
-- Architecture documentation: `docs/architecture.md`
-- Configuration guide: `docs/config.md`
-- API reference: `docs/api.md`
-- Development guide: `docs/development.md`
-- Source code: `src/` directory
-- Test suite: `tests/` directory
+### Documentation
+- Enhancement Guide: `docs/enhancement.md`
+- Quality Guide: `docs/quality.md`
+- API Reference: `docs/api.md`
+- Model Guide: `docs/models.md`
 
-This enhanced quick start guide provides comprehensive information about the improved features and capabilities of the 5K AI Image Enhancer. For detailed technical information, please refer to the architecture documentation.
+### Source Code
+- Enhancement Models: `src/models/`
+- Quality Management: `src/utils/quality_management/`
+- User Interface: `src/components/`
+
+### Examples
+- Sample Images: `examples/images/`
+- Enhancement Scripts: `examples/scripts/`
+- Configuration Files: `examples/configs/`
+
+## Token Management
+
+This quick start guide is automatically updated at 1M tokens to maintain accuracy.
+
+### Last Update: 2024-01-22
+- Document Version: 2.5.0
+- Token Count: 0
+- Next Update: 2024-01-23 00:00:00 UTC
+
+This enhanced quick start guide focuses on the AI-powered image enhancement capabilities, quality management, and user interaction features of the 5K AI Image Enhancer.

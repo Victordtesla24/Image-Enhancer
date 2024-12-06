@@ -1,231 +1,172 @@
-"""Test suite for main image processor"""
+"""Test suite for AI-powered image enhancement processor"""
 
-import os
 import pytest
 import numpy as np
 from PIL import Image
+import cv2
 import torch
 from src.utils.image_processor import ImageEnhancer
-from src.utils.model_management.model_manager import ModelManager
-from src.utils.session_management.session_manager import SessionManager
 from src.utils.quality_management.quality_manager import QualityManager
 
 @pytest.fixture
 def test_image():
-    """Create test image"""
-    # Create a test pattern with various features
-    img = np.zeros((200, 200, 3), dtype=np.uint8)
+    """Create test image with various features for enhancement testing"""
+    img = np.zeros((512, 512, 3), dtype=np.uint8)
     
     # Add color gradient
-    x, y = np.meshgrid(np.linspace(0, 255, 200), np.linspace(0, 255, 200))
+    x, y = np.meshgrid(np.linspace(0, 255, 512), np.linspace(0, 255, 512))
     img[:, :, 0] = x.astype(np.uint8)  # Red channel
     img[:, :, 1] = y.astype(np.uint8)  # Green channel
     
-    # Add some patterns for detail enhancement testing
-    img[50:150, 50:150, 2] = 255  # Blue square
-    img[75:125, 75:125] = [255, 255, 255]  # White square
+    # Add patterns for detail enhancement testing
+    img[128:384, 128:384, 2] = 255  # Blue square
+    img[192:320, 192:320] = [255, 255, 255]  # White square
+    
+    return Image.fromarray(img)
+
+@pytest.fixture
+def test_5k_image():
+    """Create 5K test image"""
+    img = np.zeros((2880, 5120, 3), dtype=np.uint8)
+    
+    # Add test patterns
+    img[1000:2000, 2000:3000] = [255, 255, 255]  # White rectangle
+    img[500:1500, 1000:2000, 0] = 255  # Red rectangle
+    img[1500:2500, 3000:4000, 1] = 255  # Green rectangle
     
     return Image.fromarray(img)
 
 @pytest.fixture
 def processor():
     """Create ImageEnhancer instance"""
-    return ImageEnhancer("test_session")
+    return ImageEnhancer()
 
-def test_processor_initialization(processor):
-    """Test image processor initialization"""
-    assert isinstance(processor.model_manager, ModelManager)
-    assert isinstance(processor.session_manager, SessionManager)
-    assert isinstance(processor.quality_manager, QualityManager)
-    assert processor.models is not None
-    assert len(processor.models) == 3
+@pytest.fixture
+def quality_manager():
+    """Create QualityManager instance"""
+    return QualityManager()
 
-def test_available_models(processor):
-    """Test getting available models"""
-    models = processor.get_available_models()
-    assert len(models) == 3
-    assert all(isinstance(model, dict) for model in models)
-    assert all("name" in model and "description" in model for model in models)
+class TestImageEnhancement:
+    def test_enhancement_quality(self, processor, quality_manager, test_image):
+        """Test image enhancement quality"""
+        # Get initial quality metrics
+        initial_metrics = quality_manager.calculate_metrics(np.array(test_image))
 
-def test_basic_enhancement(processor, test_image):
-    """Test basic image enhancement"""
-    enhanced_image, details = processor.enhance_image(
-        test_image,
-        target_width=400,
-        models=["Super Resolution"],
-        retry_count=0
-    )
-    
-    assert isinstance(enhanced_image, Image.Image)
-    assert enhanced_image.size[0] == 400
-    assert "quality_results" in details
-    assert "processing_time" in details
+        # Enhance image
+        enhanced_image = processor.enhance(np.array(test_image))
 
-def test_full_enhancement_pipeline(processor, test_image):
-    """Test complete enhancement pipeline"""
-    enhanced_image, details = processor.enhance_image(
-        test_image,
-        target_width=400,
-        models=["Super Resolution", "Color Enhancement", "Detail Enhancement"],
-        retry_count=0
-    )
-    
-    assert isinstance(enhanced_image, Image.Image)
-    assert enhanced_image.size[0] == 400
-    assert len(details["models_used"]) == 3
-    assert all(model["parameters"] for model in details["models_used"])
+        # Get enhanced quality metrics
+        enhanced_metrics = quality_manager.calculate_metrics(enhanced_image)
 
-def test_enhancement_with_retry(processor, test_image):
-    """Test enhancement with retry mechanism"""
-    enhanced_image, details = processor.enhance_image(
-        test_image,
-        target_width=400,
-        models=["Super Resolution", "Detail Enhancement"],
-        retry_count=1
-    )
-    
-    assert isinstance(enhanced_image, Image.Image)
-    assert "retry_count" in details
-    assert details["retry_count"] >= 0
+        # Verify quality improvements
+        assert enhanced_metrics['sharpness'] >= initial_metrics['sharpness']
+        assert enhanced_metrics['color_accuracy'] >= initial_metrics['color_accuracy']
+        assert enhanced_metrics['detail_preservation'] >= initial_metrics['detail_preservation']
+        assert enhanced_metrics['noise_level'] <= initial_metrics['noise_level']
 
-def test_quality_validation(processor, test_image):
-    """Test quality validation in enhancement process"""
-    enhanced_image, details = processor.enhance_image(
-        test_image,
-        target_width=400,
-        models=["Super Resolution"],
-        retry_count=0
-    )
-    
-    assert "quality_results" in details
-    quality_results = details["quality_results"]
-    assert "resolution" in quality_results
-    assert "sharpness" in quality_results
-    assert "noise_level" in quality_results
+    def test_recursive_enhancement(self, processor, quality_manager, test_image):
+        """Test recursive enhancement capabilities"""
+        enhanced = np.array(test_image)
+        metrics_history = []
 
-def test_session_tracking(processor, test_image):
-    """Test session tracking during enhancement"""
-    enhanced_image, details = processor.enhance_image(
-        test_image,
-        target_width=400,
-        models=["Super Resolution"],
-        retry_count=0
-    )
-    
-    history = processor.get_enhancement_history()
-    assert "history" in history
-    assert "metrics_summary" in history
-    assert len(history["history"]) > 0
+        # Perform multiple enhancement iterations
+        for iteration in range(3):
+            enhanced = processor.enhance(enhanced)
+            metrics = quality_manager.calculate_metrics(enhanced)
+            metrics_history.append(metrics)
 
-def test_feedback_system(processor, test_image):
-    """Test feedback system"""
-    # Perform enhancement
-    enhanced_image, details = processor.enhance_image(
-        test_image,
-        target_width=400,
-        models=["Super Resolution"],
-        retry_count=0
-    )
-    
-    # Apply feedback
-    image_hash = processor._compute_image_hash(test_image)
-    feedback = {
-        "super_resolution": {
-            "scale_factor": 1  # Increase scale factor
-        }
-    }
-    processor.apply_feedback(image_hash, feedback)
-    
-    # Verify feedback application
-    history = processor.get_enhancement_history(image_hash)
-    assert "metrics_summary" in history
+            # Update enhancement parameters based on metrics
+            processor.update_parameters({
+                'sharpness': min(1.0, metrics['sharpness'] + 0.1),
+                'color_boost': min(1.0, metrics['color_accuracy'] + 0.1),
+                'detail_level': min(1.0, metrics['detail_preservation'] + 0.1)
+            })
 
-def test_quality_preferences(processor):
-    """Test quality preferences management"""
-    preferences = processor.get_quality_preferences()
-    assert isinstance(preferences, dict)
-    
-    new_preferences = {
-        "min_resolution": (3840, 2160),
-        "min_dpi": 200
-    }
-    processor.update_quality_preferences(new_preferences)
-    
-    updated_preferences = processor.get_quality_preferences()
-    assert updated_preferences["min_resolution"] == (3840, 2160)
-    assert updated_preferences["min_dpi"] == 200
+        # Verify progressive improvement or maintenance of high quality
+        for i in range(1, len(metrics_history)):
+            assert metrics_history[i]['sharpness'] >= metrics_history[i-1]['sharpness'] or metrics_history[i]['sharpness'] >= 0.9
+            assert metrics_history[i]['color_accuracy'] >= metrics_history[i-1]['color_accuracy'] or metrics_history[i]['color_accuracy'] >= 0.9
+            assert metrics_history[i]['detail_preservation'] >= metrics_history[i-1]['detail_preservation'] or metrics_history[i]['detail_preservation'] >= 0.9
 
-def test_error_handling(processor):
-    """Test error handling"""
-    # Test with invalid input
-    with pytest.raises(Exception):
-        processor.enhance_image(None, 400, ["Super Resolution"])
-    
-    # Test with invalid model
-    with pytest.raises(Exception):
-        processor.enhance_image(
-            Image.new('RGB', (100, 100)),
-            400,
-            ["Invalid Model"]
-        )
+    def test_5k_enhancement(self, processor, quality_manager, test_5k_image):
+        """Test 5K image enhancement capabilities"""
+        # Set 5K optimization parameters
+        processor.update_parameters({
+            'resolution_target': '5k',
+            'quality_preset': 'ultra',
+            'detail_preservation': 0.9,
+            'sharpness': 0.9,
+            'color_boost': 0.9
+        })
 
-def test_memory_management(processor, test_image):
-    """Test memory management during enhancement"""
-    initial_memory = torch.cuda.memory_allocated() if torch.cuda.is_available() else 0
-    
-    enhanced_image, details = processor.enhance_image(
-        test_image,
-        target_width=1000,  # Larger size to stress memory
-        models=["Super Resolution", "Color Enhancement", "Detail Enhancement"],
-        retry_count=0
-    )
-    
-    # Force garbage collection
-    if torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    
-    final_memory = torch.cuda.memory_allocated() if torch.cuda.is_available() else 0
-    assert final_memory <= initial_memory * 1.1  # Allow for small overhead
+        # Get initial metrics
+        initial_metrics = quality_manager.calculate_metrics(np.array(test_5k_image))
 
-def test_enhancement_consistency(processor, test_image):
-    """Test consistency of enhancement results"""
-    # Perform two identical enhancements
-    result1, details1 = processor.enhance_image(
-        test_image,
-        target_width=400,
-        models=["Super Resolution"],
-        retry_count=0
-    )
-    
-    result2, details2 = processor.enhance_image(
-        test_image,
-        target_width=400,
-        models=["Super Resolution"],
-        retry_count=0
-    )
-    
-    # Compare results
-    diff = np.array(result1) - np.array(result2)
-    assert np.abs(diff).mean() < 1.0  # Allow for small floating-point differences
+        # Enhance 5K image
+        enhanced = processor.enhance(np.array(test_5k_image))
 
-def test_progress_callback(processor, test_image):
-    """Test progress callback functionality"""
-    progress_values = []
-    
-    def progress_callback(progress, status):
-        progress_values.append(progress)
-    
-    enhanced_image, details = processor.enhance_image(
-        test_image,
-        target_width=400,
-        models=["Super Resolution", "Color Enhancement"],
-        progress_callback=progress_callback
-    )
-    
-    assert len(progress_values) > 0
-    assert progress_values[-1] == 1.0  # Final progress should be 100%
+        # Get enhanced metrics
+        enhanced_metrics = quality_manager.calculate_metrics(enhanced)
 
-def test_cleanup(processor):
-    """Test cleanup after processing"""
-    # Cleanup happens in fixture teardown
-    pass
+        # Verify quality improvements
+        assert enhanced_metrics['sharpness'] >= initial_metrics['sharpness']
+        assert enhanced_metrics['detail_preservation'] >= initial_metrics['detail_preservation']
+        assert enhanced_metrics['color_accuracy'] >= initial_metrics['color_accuracy']
+        assert enhanced_metrics['resolution_maintained']
+
+    def test_quality_feedback_integration(self, processor, quality_manager, test_image):
+        """Test enhancement adaptation based on quality feedback"""
+        enhanced = np.array(test_image)
+        feedback_history = []
+
+        # Perform multiple enhancement iterations with feedback
+        for iteration in range(3):
+            enhanced = processor.enhance(enhanced)
+            metrics = quality_manager.calculate_metrics(enhanced)
+
+            # Simulate user feedback
+            feedback = {
+                'sharpness_satisfaction': 0.7 + iteration * 0.1,
+                'color_satisfaction': 0.8,
+                'detail_satisfaction': 0.7 + iteration * 0.1
+            }
+            feedback_history.append(feedback)
+
+            # Apply feedback
+            processor.adapt_to_feedback(feedback_history)
+
+            # Verify metrics improve or maintain high quality
+            if iteration > 0:
+                assert metrics['sharpness'] >= previous_metrics['sharpness'] or metrics['sharpness'] >= 0.9
+                assert metrics['color_accuracy'] >= previous_metrics['color_accuracy'] or metrics['color_accuracy'] >= 0.9
+                assert metrics['detail_preservation'] >= previous_metrics['detail_preservation'] or metrics['detail_preservation'] >= 0.9
+
+            previous_metrics = metrics
+
+    def test_enhancement_consistency(self, processor, quality_manager, test_image):
+        """Test consistency of enhancement results"""
+        results = []
+        
+        # Perform multiple enhancements with same parameters
+        for _ in range(3):
+            enhanced = processor.enhance(np.array(test_image))
+            metrics = quality_manager.calculate_metrics(enhanced)
+            results.append(metrics)
+        
+        # Verify consistency
+        for i in range(1, len(results)):
+            assert abs(results[i]['sharpness'] - results[0]['sharpness']) < 0.1
+            assert abs(results[i]['color_accuracy'] - results[0]['color_accuracy']) < 0.1
+            assert abs(results[i]['detail_preservation'] - results[0]['detail_preservation']) < 0.1
+
+    def test_enhancement_suggestions(self, processor, quality_manager, test_image):
+        """Test enhancement suggestion system"""
+        enhanced = processor.enhance(np.array(test_image))
+        metrics = quality_manager.calculate_metrics(enhanced)
+        suggestions = quality_manager.get_enhancement_suggestions(metrics)
+        
+        assert isinstance(suggestions, dict)
+        for key in ['sharpness', 'color', 'detail']:
+            if key in suggestions:
+                assert isinstance(suggestions[key], str)
+                assert len(suggestions[key]) > 0
