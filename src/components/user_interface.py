@@ -1,6 +1,7 @@
 """User interface components for the image enhancement system."""
 
 import logging
+import os
 import time
 from collections import Counter
 from datetime import datetime
@@ -325,6 +326,28 @@ class ProgressUI:
             st.metric("Processing Rate", f"{items_per_second:.1f} items/s")
         with cols[2]:
             st.metric("Time Elapsed", f"{elapsed:.1f}s")
+
+    def process_image(self, image_path: str, output_path: str, 
+                     quality_settings: dict) -> None:
+        """Process an image with the given settings."""
+        try:
+            processed_image = self.processor.process_image(
+                image_path, 
+                quality_settings
+            )
+            processed_image.save(output_path)
+            self.update_processing_status(
+                f"Successfully processed {os.path.basename(image_path)}"
+            )
+        except Exception as e:
+            self.handle_processing_error(str(e))
+
+    def update_processing_status(self, message: str) -> None:
+        """Update the UI with current processing status."""
+        self.status_messages.append({
+            'timestamp': datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+            'message': message
+        })
 
 
 class ComparisonUI:

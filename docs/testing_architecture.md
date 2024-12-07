@@ -1,69 +1,82 @@
 # Testing Architecture
 
-## Overview
-The testing architecture is designed to ensure code quality, functionality, and maintainability across the project. Tests are organized by functionality to improve maintainability and execution efficiency.
-
 ## Test Organization
 
-### Quality Management Tests
-The quality management test suite is split into multiple focused files:
+### Core Tests
+Tests are organized to match the modular structure:
 
-1. `conftest.py`
-   - Contains shared fixtures used across quality management tests
-   - Provides test image generation utilities
-   - Manages QualityManager instance creation
+1. `test_processor/`
+   - `test_base.py`: Tests for BaseProcessor
+   - `test_batch.py`: Tests for BatchProcessor
+   - `test_integration.py`: Integration tests
 
-2. `test_basic_metrics.py`
-   - Tests for basic quality metrics calculation
-   - Individual metric validation
-   - Value range verification
+### Test Categories
+1. Unit Tests
+   - Individual component testing
+   - Mock dependencies
+   - Focus on single responsibility
 
-3. `test_processing_accuracy.py`
-   - Processing accuracy analysis tests
-   - Metrics comparison validation
-   - Accuracy scores calculation
+2. Integration Tests
+   - Component interaction testing
+   - Real dependencies where possible
+   - End-to-end workflows
 
-4. `test_quality_improvement.py`
-   - Quality improvement analysis
-   - Analysis feedback generation
-   - Improvement metrics validation
+3. Performance Tests
+   - Memory usage verification
+   - CPU utilization checks
+   - Batch processing efficiency
 
-5. `test_edge_cases.py`
-   - Edge case handling
-   - Error condition testing
-   - Boundary value analysis
+## Test Implementation
 
-6. `test_configuration.py`
-   - Configuration validation
-   - History tracking tests
-   - Threshold verification
+### Fixtures
+- Shared fixtures in conftest.py
+- Mock objects for external dependencies
+- Test data generation
 
-7. `test_performance_metrics.py`
-   - Performance-related metrics testing
-   - Artifact level analysis
-   - Dynamic range verification
-
-## Test Execution
-
-### Running Tests
-Tests can be executed:
-- All at once: `pytest tests/`
-- By category: `pytest tests/test_basic_metrics.py`
-- With specific markers: `pytest -m "not slow"`
+### Mocking Strategy
+- Mock heavy dependencies
+- Simulate resource constraints
+- Test error conditions
 
 ### Memory Management
-- Tests are split to reduce memory usage
-- Each test file focuses on specific functionality
-- Prevents API throttling issues
+- Clean up resources after tests
+- Monitor memory usage
+- Verify cleanup methods
 
 ## Best Practices
-1. Keep test files focused and manageable
-2. Use shared fixtures from conftest.py
-3. Follow naming conventions for test files and functions
-4. Include appropriate assertions and error checks
-5. Document test purposes and requirements
 
-## Continuous Integration
-- All tests must pass before deployment
-- Coverage requirements must be met
-- Performance benchmarks must be maintained
+1. Test Organization
+   - Keep tests focused
+   - Clear naming convention
+   - Proper documentation
+
+2. Resource Management
+   - Clean up after tests
+   - Monitor resource usage
+   - Prevent memory leaks
+
+3. Error Handling
+   - Test error cases
+   - Verify error messages
+   - Check cleanup on errors
+
+## Running Tests
+
+### Commands
+bash
+# Run all tests
+pytest tests/
+
+# Run specific module tests
+pytest tests/test_processor/
+
+# Run with coverage
+pytest --cov=src tests/
+```
+
+### CI/CD Integration
+- Run tests before deployment
+- Verify resource cleanup
+- Check memory usage
+- Monitor test duration
+```

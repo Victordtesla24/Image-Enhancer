@@ -7,13 +7,13 @@ import time
 import uuid
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
 
 class LearningManager:
-    """Manages model learning and adaptation."""
+    """Manages the learning and adaptation of image enhancement models."""
 
     def __init__(self, feedback_dir: Optional[str] = None):
         """Initialize learning manager.
@@ -24,9 +24,9 @@ class LearningManager:
         self.feedback_dir = Path(feedback_dir) if feedback_dir else Path("feedback")
         self.feedback_dir.mkdir(exist_ok=True)
 
-        self.style_profiles = {}
-        self.active_sessions = {}
-        self.feedback_history = []
+        self.style_profiles: Dict[str, Dict] = {}
+        self.active_sessions: Dict[str, Dict] = {}
+        self.feedback_history: List[Dict] = []
         self.current_session = None
         self.last_cleanup = time.time()
         self.cleanup_interval = 3600  # 1 hour

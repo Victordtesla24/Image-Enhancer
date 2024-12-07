@@ -46,12 +46,83 @@ class EnhancementAttempt:
 class SessionManager:
     """Manages processing sessions."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         """Initialize session manager."""
+        self.sessions: Dict[str, Dict[str, Any]] = {}
+        self.initialized = False
+        
+    def initialize(self) -> None:
+        """Initialize the session manager."""
+        if self.initialized:
+            return
+            
+        logger.info("Initializing session manager")
         self.sessions = {}
-        self.session_history = []
-        self.cleanup_interval = 3600  # 1 hour
-        self.last_cleanup = time.time()
+        self.initialized = True
+        
+    def create_session(self, session_id: str, config: Dict[str, Any]) -> bool:
+        """Create new session.
+        
+        Args:
+            session_id: Session identifier
+            config: Session configuration
+            
+        Returns:
+            True if session created, False if exists
+        """
+        if session_id in self.sessions:
+            return False
+            
+        self.sessions[session_id] = {
+            'config': config,
+            'start_time': time.time(),
+            'status': 'created'
+        }
+        return True
+        
+    def update_session(self, session_id: str, progress: float) -> None:
+        """Update session progress.
+        
+        Args:
+            session_id: Session identifier
+            progress: Progress value (0-1)
+        """
+        if session_id not in self.sessions:
+            raise ValueError(f"Session {session_id} not found")
+            
+        self.sessions[session_id].update({
+            'progress': progress,
+            'last_update': time.time()
+        })
+        
+    def get_session_info(self, session_id: str) -> Dict[str, Any]:
+        """Get session information.
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            Session information dictionary
+        """
+        if session_id not in self.sessions:
+            raise ValueError(f"Session {session_id} not found")
+            
+        return self.sessions[session_id]
+        
+    def cleanup_session(self, session_id: str) -> None:
+        """Clean up session resources.
+        
+        Args:
+            session_id: Session identifier
+        """
+        if session_id in self.sessions:
+            self.sessions[session_id]['status'] = 'cleaned'
+            del self.sessions[session_id]
+            
+    def cleanup(self) -> None:
+        """Clean up all sessions."""
+        for session_id in list(self.sessions.keys()):
+            self.cleanup_session(session_id)
 
     def start_session(self) -> str:
         """Start new processing session.
@@ -120,16 +191,38 @@ class SessionManager:
             self.session_history.append(self.sessions[session_id])
             del self.sessions[session_id]
 
-    def get_session_info(self, session_id: str) -> Optional[Dict[str, Any]]:
+    def get_session_info(self, session_id: str) -> Dict[str, Any]:
         """Get session information.
-
+        
         Args:
             session_id: Session identifier
-
+        
         Returns:
-            Session information or None if not found
+            Session information
+        
+        Raises:
+            ValueError: If session not found
         """
-        return self.sessions.get(session_id)
+        try:
+            if session_id not in self.sessions:
+                raise ValueError(f"Session {session_id} not found")
+            
+            session = self.sessions[session_id]
+            return {
+                'id': session_id,
+                'start_time': session['start_time'],
+                'end_time': session.get('end_time'),
+                'status': session['status'],
+                'processed_items': session.get('processed_items', 0),
+                'total_items': session.get('total_items', 0),
+                'errors': session.get('errors', []),
+                'metrics': session.get('metrics', {}),
+                'config': session.get('config', {})
+            }
+            
+        except Exception as e:
+            self.logger.error(f"Error getting session info: {str(e)}")
+            raise
 
     def get_active_sessions(self) -> List[str]:
         """Get active session IDs.
@@ -169,3 +262,33 @@ class SessionManager:
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S_%f")
         random_suffix = uuid.uuid4().hex[:8]
         return f"{timestamp}_{random_suffix}"
+
+    def cleanup_session(self, session_id: str) -> None:
+        """Clean up session resources.
+        
+        Args:
+            session_id: Session identifier
+        
+        Raises:
+            ValueError: If session not found
+        """
+        try:
+            if session_id not in self.sessions:
+                raise ValueError(f"Session {session_id} not found")
+            
+            # Clean up resources
+            session = self.sessions[session_id]
+            if 'resources' in session:
+                for resource in session['resources']:
+                    try:
+                        if hasattr(resource, 'cleanup'):
+                            resource.cleanup()
+                    except Exception as e:
+                        self.logger.error(f"Error cleaning up resource: {str(e)}")
+            
+            # Remove session
+            del self.sessions[session_id]
+            
+        except Exception as e:
+            self.logger.error(f"Error cleaning up session {session_id}: {str(e)}")
+            raise

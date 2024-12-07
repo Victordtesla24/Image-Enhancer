@@ -2,18 +2,22 @@
 
 import copy
 import logging
+import os
 import time
 import yaml
-from typing import Any, Dict, List, Optional, Tuple
-
+from typing import Any, Dict, List, Optional, Tuple, Union
 import numpy as np
+from numpy.typing import NDArray
+import cv2
 import torch
 from torch.utils.data import Dataset, DataLoader
 
 from .error_handler import ErrorHandler
-from .gpu_accelerator import GPUAccelerator
 from .system_integrator import ResourceManager, SystemMonitor
+from .gpu_accelerator import GPUAccelerator
 from ..quality_management.quality_manager import QualityManager
+from ..session_management.session_manager import SessionManager
+from ..model_management.model_manager import ModelManager
 
 logger = logging.getLogger(__name__)
 
@@ -205,48 +209,51 @@ class ConfigSchema:
 
 
 class Processor:
-    """Core processor for image enhancement."""
+    """Processes datasets using configured models."""
 
-    def __init__(self):
-        """Initialize processor."""
+    def __init__(self, config: Optional[Dict[str, Any]] = None) -> None:
+        """Initialize processor.
+        
+        Args:
+            config: Optional configuration dictionary
+        """
+        self.config = config or {}
+        self.logger = logging.getLogger(__name__)
+        self.error_handler = ErrorHandler()
         self.resource_manager = ResourceManager()
         self.system_monitor = SystemMonitor()
-        self.error_handler = ErrorHandler()
-        self.gpu_accelerator = GPUAccelerator()
-        self.quality_manager = QualityManager()
         self.session_manager = SessionManager()
-        self.config = {}
+        self.gpu_accelerator = GPUAccelerator()
+        self.model_manager = ModelManager()
         self.initialized = False
+        self.initialize()
 
-    def initialize(self):
-        """Initialize processor components."""
+    def initialize(self) -> None:
+        """Initialize processor."""
         if self.initialized:
             return
-
+        
         # Initialize components
+        self.model_manager.initialize()
         self.resource_manager.initialize()
-        self.system_monitor.initialize()
-        self.gpu_accelerator.initialize()
-        self.quality_manager.initialize()
         self.session_manager.initialize()
-
-        # Load default configuration
+        self.system_monitor.initialize()
+        self.error_handler.initialize()
+        
+        # Set default config
         self.config = {
-            'batch_size': self._calculate_optimal_batch_size(),
-            'device': 'cuda' if torch.cuda.is_available() else 'cpu',
-            'precision': 'float32',
-            'memory_limit': 0.8,
-            'cpu_limit': 0.9,
+            'batch_size': 4,
+            'max_memory_usage': 0.8,
+            'max_cpu_usage': 0.9,
+            'timeout': 30,
+            'retry_attempts': 3,
+            'log_level': 'INFO'
         }
-
+        
         self.initialized = True
 
     def _calculate_optimal_batch_size(self) -> int:
-        """Calculate optimal batch size based on available resources.
-        
-        Returns:
-            Optimal batch size
-        """
+        """Calculate optimal batch size based on available resources."""
         # Get available memory
         available_memory = self.resource_manager._get_available_memory()
         
@@ -260,142 +267,156 @@ class Processor:
         optimal_size = max(1, int(usable_memory / (mem_per_image * 2)))
         return min(optimal_size, 32)  # Cap at 32 to prevent excessive memory usage
 
-    def process_dataset(self, file_paths: List[str], session_id: str) -> Tuple[List[torch.Tensor], Dict[str, Any]]:
-        """Process a dataset of files.
+    def process_dataset(self, dataset_path: Union[str, List[str]], session_id: str) -> None:
+        """Process a dataset of images.
         
         Args:
-            file_paths: List of file paths to process
+            dataset_path: Path to dataset or list of image paths
             session_id: Session identifier
             
-        Returns:
-            Tuple of (processed tensors, processing info)
+        Raises:
+            ValueError: If dataset is empty or invalid
+            RuntimeError: If resource limits are exceeded
         """
-        if not self.initialized:
-            self.initialize()
-
+        if not dataset_path:
+            raise ValueError("Empty dataset")
+        
+        if not session_id:
+            raise ValueError("Missing session ID")
+        
+        # Check resource availability
+        if not self.resource_manager.check_resource_availability():
+            raise RuntimeError("Resource limits exceeded")
+        
         try:
             # Create session
-            if not self.session_manager.create_session(session_id, self.config):
+            if not self.session_manager.create_session(session_id, {}):
                 raise ValueError(f"Session {session_id} already exists")
             
-            # Initialize dataset
-            dataset = DatasetHandler(file_paths, chunk_size=self._calculate_optimal_batch_size())
-            dataloader = DataLoader(dataset, batch_size=self._calculate_optimal_batch_size(), shuffle=False)
+            # Process dataset
+            if isinstance(dataset_path, str):
+                dataset_path = [dataset_path]
             
-            results = []
-            start_time = time.time()
-            error = None
-            
-            # Get initial system metrics
-            system_metrics = {
-                'initial': self.system_monitor.get_system_metrics()
-            }
-            
-            for batch_idx, batch in enumerate(dataloader):
-                try:
-                    # Check resource availability
-                    if not self.resource_manager.check_resource_availability():
-                        logger.warning("Resource limits reached, waiting...")
-                        time.sleep(1)
-                        continue
-                    
-                    # Process batch
-                    processed = self._process_batch(batch)
-                    results.extend(processed)
-                    
-                    # Update session
-                    self.session_manager.update_session(session_id, len(processed))
-                    
-                    # Update system metrics every 10 batches
-                    if batch_idx % 10 == 0:
-                        system_metrics[f'batch_{batch_idx}'] = self.system_monitor.get_system_metrics()
-                    
-                except Exception as e:
-                    logger.error(f"Error processing batch: {str(e)}")
-                    error = str(e)
-                    self.error_handler.handle_error(e, {
-                        'session_id': session_id,
-                        'batch_size': len(batch),
-                        'current_results': len(results)
-                    })
-                    break  # Stop processing on error
-            
-            duration = time.time() - start_time
-            
-            # Get final system metrics
-            system_metrics['final'] = self.system_monitor.get_system_metrics()
-            
-            return results, {
-                'total_items': len(file_paths),
-                'processed_items': len(results),
-                'duration': duration,
-                'errors': len(self.error_handler.error_history),
-                'system_metrics': system_metrics,
-                'error': error
-            }
+            for path in dataset_path:
+                if not os.path.exists(path):
+                    raise FileNotFoundError(f"Path not found: {path}")
+                
+            # Process images in batches
+            batch_size = self.config.get('batch_size', 4)
+            for i in range(0, len(dataset_path), batch_size):
+                # Check resource availability before each batch
+                if not self.resource_manager.check_resource_availability():
+                    raise RuntimeError("Resource limits exceeded during batch processing")
+                
+                batch = dataset_path[i:i + batch_size]
+                self._process_batch(batch)
             
         except Exception as e:
-            logger.error(f"Error processing dataset: {str(e)}")
-            self.error_handler.handle_error(e, {
-                'session_id': session_id,
-                'total_files': len(file_paths)
-            })
-            
-            # Get final system metrics even in error case
-            system_metrics = {
-                'error': self.system_monitor.get_system_metrics()
-            }
-            
-            return [], {
-                'total_items': len(file_paths),
-                'processed_items': 0,
-                'duration': 0,
-                'errors': 1,
-                'error': str(e),
-                'system_metrics': system_metrics
-            }
+            self.error_handler.handle_error(e, {'session_id': session_id})
+            raise
+        finally:
+            self.session_manager.cleanup_session(session_id)
 
-    def _process_batch(self, batch: torch.Tensor) -> List[torch.Tensor]:
-        """Process a batch of tensors.
+    def _process_batch(self, batch: List[NDArray[np.uint8]]) -> List[NDArray[np.uint8]]:
+        """Process a batch of images.
         
         Args:
-            batch: Input batch tensor
+            batch: List of input images
             
         Returns:
-            List of processed tensors
+            List of processed images
+            
+        Raises:
+            ValueError: If batch is empty or contains invalid images
+            RuntimeError: If processing fails
         """
         try:
-            # Move to GPU if available
-            device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-            batch = batch.to(device)
+            if not batch:
+                raise ValueError("Empty batch")
             
-            # Apply processing
-            processed = self._apply_processing(batch)
+            # Convert to tensors
+            tensors = []
+            for img in batch:
+                if img is None:
+                    raise ValueError("Cannot process None image")
+                if not isinstance(img, np.ndarray):
+                    raise ValueError("Input must be a numpy array")
+                if img.size == 0:
+                    raise ValueError("Cannot process empty image")
+                    
+                tensor = torch.from_numpy(img).permute(2, 0, 1).unsqueeze(0).float()
+                tensor = tensor / 255.0  # Normalize
+                tensors.append(tensor)
+                
+            # Stack tensors
+            batch_tensor = torch.cat(tensors, dim=0)
             
-            # Move back to CPU
-            processed = [p.cpu() for p in processed]
+            # Move to device
+            device = self.gpu_accelerator.get_device()
+            batch_tensor = batch_tensor.to(device)
             
+            # Process batch
+            processed = self._apply_processing(batch_tensor)
+            
+            # Convert back to numpy
+            results = []
+            if isinstance(processed, torch.Tensor):
+                processed = processed.detach().cpu()
+                for i in range(processed.size(0)):
+                    img = processed[i].squeeze().permute(1, 2, 0).numpy()
+                    img = (img * 255.0).clip(0, 255).astype(np.uint8)
+                    results.append(img)
+            else:
+                for tensor in processed:
+                    tensor = tensor.detach().cpu()
+                    img = tensor.squeeze().permute(1, 2, 0).numpy()
+                    img = (img * 255.0).clip(0, 255).astype(np.uint8)
+                    results.append(img)
+            
+            return results
+            
+        except Exception as e:
+            self.logger.error(f"Error in batch processing: {str(e)}")
+            self.error_handler.handle_error(e, {
+                'batch_size': len(batch),
+                'device': device if 'device' in locals() else None
+            })
+            raise
+
+    def _apply_processing(self, batch_tensor: torch.Tensor) -> torch.Tensor:
+        """Apply processing to a batch of tensors.
+        
+        Args:
+            batch_tensor: Input tensor batch
+            
+        Returns:
+            Processed tensor batch
+            
+        Raises:
+            RuntimeError: If processing fails
+        """
+        try:
+            # Check if we have enough memory
+            if not self.resource_manager.check_resource_availability():
+                raise RuntimeError("Resource limits reached")
+            
+            # Process batch
+            processed = batch_tensor
+            for model_name in self.model_manager.get_active_models():
+                model = self.model_manager.models[model_name]
+                if model is not None:
+                    with torch.no_grad():
+                        processed = model(processed)
+                    
             return processed
             
         except Exception as e:
-            logger.error(f"Error in batch processing: {str(e)}")
+            self.logger.error(f"Error in processing: {str(e)}")
             self.error_handler.handle_error(e, {
-                'batch_size': len(batch),
-                'device': str(device)
+                'batch_size': batch_tensor.size(0),
+                'device': batch_tensor.device
             })
-            raise  # Re-raise the exception to be caught by process_dataset
-
-    def _apply_processing(self, batch: torch.Tensor) -> List[torch.Tensor]:
-        """Apply processing to a batch of tensors.
-
-        Args:
-            batch: Input batch tensor
-
-        Returns:
-            List of processed tensors
-        """
-        # Placeholder for processing implementation
-        return [batch]
+            raise
 
     def get_processing_history(self) -> List[Dict[str, Any]]:
         """Get processing history.
@@ -604,3 +625,24 @@ class Processor:
                 "feedback_frequency": "low_quality",
             },
         }
+
+    def get_error_info(self) -> Dict[str, Any]:
+        """Get error information."""
+        last_error = self.error_handler.error_history[-1] if self.error_handler.error_history else None
+        return {
+            'errors': self.error_handler.error_history,
+            'last_error': last_error,
+            'error_count': len(self.error_handler.error_history),
+            'error': last_error['message'] if last_error else None,
+            'timestamp': last_error['timestamp'] if last_error else None
+        }
+
+    def get_system_metrics(self) -> Dict[str, Any]:
+        """Get system metrics."""
+        metrics = self.system_monitor.get_system_metrics()
+        metrics.update({
+            'cpu_usage': metrics['cpu']['usage_percent'],
+            'memory_usage': metrics['memory']['percent'],
+            'disk_usage': metrics['disk']['percent']
+        })
+        return metrics

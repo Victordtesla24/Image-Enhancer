@@ -56,10 +56,21 @@ def test_model_validation(model_manager, mock_model):
     # Test valid model
     assert model_manager.validate_model(mock_model)
 
-    # Test invalid model
+    # Test None model
+    assert not model_manager.validate_model(None)
+
+    # Test invalid model (no required methods)
     invalid_model = MagicMock()
-    invalid_model.process = None
+    invalid_model._mock_return_value = None
+    invalid_model.forward = None
     assert not model_manager.validate_model(invalid_model)
+
+    # Test model with required methods but no parameters
+    mock_model_no_params = MagicMock()
+    mock_model_no_params._mock_return_value = None
+    mock_model_no_params.forward = MagicMock()
+    mock_model_no_params.parameters = lambda: iter([])
+    assert not model_manager.validate_model(mock_model_no_params)
 
 
 def test_model_optimization(model_manager, mock_model):

@@ -1,204 +1,312 @@
-"""Streamlit app for image enhancement."""
+"""Streamlit web application for image enhancement."""
 
+import streamlit as st
+import numpy as np
+from PIL import Image
+import io
 import os
 import time
-from pathlib import Path
+import logging
+import sys
+import pandas as pd
 from typing import Optional, Tuple
-
-import cv2
-import numpy as np
-import streamlit as st
+import warnings
 import torch
-from PIL import Image
 
-from src.utils.core.processor import Processor
-from src.components.user_interface import ProgressUI
-from src.utils.quality_management.quality_manager import QualityManager
+# Suppress all warnings
+warnings.filterwarnings('ignore')
 
-# Page config
-st.set_page_config(
-    page_title="AI Image Enhancer",
-    page_icon="✨",
-    layout="wide",
-    initial_sidebar_state="expanded",
+# Add src directory to Python path
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__))))
+
+from src.utils.image_processor import ImageProcessor, EnhancementStrategy
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
+logger = logging.getLogger(__name__)
 
-# Styles
-st.markdown("""
-    <style>
-    .main {
-        padding: 0rem 1rem;
-    }
-    .stProgress > div > div > div > div {
-        background-color: #1f77b4;
-    }
-    </style>
-    """, unsafe_allow_html=True)
+def initialize_session_state():
+    """Initialize session state variables."""
+    if 'initialized' not in st.session_state:
+        st.session_state.initialized = True
+        st.session_state.processor = ImageProcessor()
+        st.session_state.enhancement_attempts = []
+        st.session_state.current_attempt = 0
+        st.session_state.total_attempts = 5
+        st.session_state.thresholds = {
+            'sharpness': 0.95,  # Increased for maximum detail
+            'contrast': 0.90,   # Optimized for dynamic range
+            'noise': 0.15,      # Lowered to preserve fine details
+            'detail': 0.95,     # Increased for enhanced clarity
+            'color': 0.85       # Balanced for natural look
+        }
 
-@st.cache_data
-def load_image(image_file: Optional[bytes]) -> Optional[np.ndarray]:
-    """Load and preprocess image.
-    
-    Args:
-        image_file: Uploaded image file
-        
-    Returns:
-        Preprocessed image array
-    """
+def load_image(image_file) -> Optional[Image.Image]:
+    """Load and prepare image for processing."""
     if image_file is None:
         return None
-        
-    image = Image.open(image_file)
-    image = np.array(image)
-    if len(image.shape) == 2:  # Grayscale
-        image = cv2.cvtColor(image, cv2.COLOR_GRAY2RGB)
-    elif image.shape[2] == 4:  # RGBA
-        image = cv2.cvtColor(image, cv2.COLOR_RGBA2RGB)
-    return image
-
-@st.cache_resource
-def get_processor() -> Processor:
-    """Get or create processor instance.
-    
-    Returns:
-        Processor instance
-    """
-    return Processor()
-
-def process_image(
-    image: np.ndarray,
-    quality: float,
-    resolution: str,
-    progress_ui: ProgressUI
-) -> Tuple[np.ndarray, dict]:
-    """Process image with progress tracking.
-    
-    Args:
-        image: Input image array
-        quality: Target quality score
-        resolution: Target resolution
-        progress_ui: Progress UI instance
-        
-    Returns:
-        Tuple of (processed image, processing info)
-    """
-    processor = get_processor()
-    
-    # Create temp files
-    input_path = "temp_input.png"
-    output_path = "temp_output.png"
-    cv2.imwrite(input_path, cv2.cvtColor(image, cv2.COLOR_RGB2BGR))
     
     try:
-        # Process image
-        result = processor.process_image(
-            input_path,
-            output_path,
-            target_quality=quality,
-            target_resolution=resolution,
-            progress_callback=progress_ui.update_progress
-        )
+        # Read image file
+        image_bytes = image_file.read()
+        image = Image.open(io.BytesIO(image_bytes))
         
-        # Load result
-        processed_image = cv2.imread(output_path)
-        processed_image = cv2.cvtColor(processed_image, cv2.COLOR_BGR2RGB)
+        # Convert to RGB if needed
+        if image.mode != 'RGB':
+            image = image.convert('RGB')
+            
+        return image
+    except Exception as e:
+        st.error(f"Error loading image: {str(e)}")
+        return None
+
+def process_image(image: Image.Image, strategy: EnhancementStrategy) -> Tuple[Image.Image, dict]:
+    """Process image with multiple enhancement attempts."""
+    try:
+        # Reset enhancement attempts
+        st.session_state.enhancement_attempts = []
+        st.session_state.current_attempt = 0
         
-        return processed_image, result
+        # Create progress containers
+        progress_placeholder = st.empty()
+        status_placeholder = st.empty()
+        current_metrics_placeholder = st.empty()
         
-    finally:
-        # Cleanup
-        for path in [input_path, output_path]:
-            if os.path.exists(path):
-                os.remove(path)
+        # Calculate original metrics
+        metrics_original = st.session_state.processor.calculate_metrics(image)
+        
+        # Enhanced parameters for 5K resolution
+        enhancement_params = [
+            {'contrast': 1.4, 'sharpness': 1.5, 'color': 1.2},  # Maximum quality
+            {'contrast': 1.5, 'sharpness': 1.6, 'color': 1.3},  # Ultra sharp
+            {'contrast': 1.6, 'sharpness': 1.7, 'color': 1.25}, # Maximum detail
+            {'contrast': 1.45, 'sharpness': 1.55, 'color': 1.2}, # Balanced
+            {'contrast': 1.55, 'sharpness': 1.65, 'color': 1.3}  # Enhanced
+        ]
+        
+        best_score = -float('inf')
+        best_image = None
+        best_metrics = None
+        
+        # Try different enhancement parameters
+        for i, params in enumerate(enhancement_params):
+            st.session_state.current_attempt = i + 1
+            
+            # Update progress
+            progress = (i + 1) / len(enhancement_params)
+            progress_bar = progress_placeholder.progress(progress)
+            status_placeholder.text(f"Enhancement attempt {i+1}/{len(enhancement_params)} - Optimizing for 5K")
+            
+            # Process image with current parameters
+            enhanced = st.session_state.processor.enhance_image(
+                image, 
+                strategy,
+                enhancement_params=params
+            )
+            
+            # Calculate metrics
+            metrics = st.session_state.processor.calculate_metrics(enhanced)
+            
+            # Display current metrics
+            with current_metrics_placeholder:
+                col1, col2 = st.columns(2)
+                with col1:
+                    st.markdown("### Current Enhancement Parameters")
+                    st.write(f"Contrast: {params['contrast']:.2f}")
+                    st.write(f"Sharpness: {params['sharpness']:.2f}")
+                    st.write(f"Color: {params['color']:.2f}")
+                with col2:
+                    st.markdown("### Current Metrics")
+                    st.write(f"Sharpness: {metrics['sharpness']:.2f}")
+                    st.write(f"Contrast: {metrics['contrast']:.2f}")
+                    st.write(f"Detail: {metrics['detail']:.2f}")
+            
+            # Calculate overall score with emphasis on 5K quality
+            score = (
+                metrics['sharpness'] * 0.35 +  # Increased weight for sharpness
+                metrics['contrast'] * 0.25 +   # Balanced contrast
+                (1 - metrics['noise_level']) * 0.15 +  # Reduced noise importance
+                metrics['detail'] * 0.15 +     # Enhanced detail weight
+                metrics['color'] * 0.10        # Natural color
+            )
+            
+            # Update best result if better
+            if score > best_score:
+                best_score = score
+                best_image = enhanced
+                best_metrics = metrics
+            
+            # Record attempt
+            st.session_state.enhancement_attempts.append({
+                'attempt': i + 1,
+                'parameters': params,
+                'metrics': metrics,
+                'score': score
+            })
+            
+            # Small delay to show progress
+            time.sleep(0.5)
+        
+        # Clear progress indicators
+        progress_placeholder.empty()
+        status_placeholder.empty()
+        current_metrics_placeholder.empty()
+        
+        return best_image, {
+            'original': metrics_original,
+            'enhanced': best_metrics
+        }
+        
+    except Exception as e:
+        st.error(f"Error processing image: {str(e)}")
+        return image, {}
+
+def display_metrics(metrics: dict):
+    """Display image quality metrics."""
+    if not metrics:
+        return
+        
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        st.markdown("### 📊 Original Metrics")
+        metrics_df = pd.DataFrame({
+            'Metric': ['✨ Sharpness', '🎯 Contrast', '🔍 Detail', '🎨 Color', '📱 Resolution'],
+            'Value': [
+                f"{metrics['original']['sharpness']:.2f}",
+                f"{metrics['original']['contrast']:.2f}",
+                f"{metrics['original']['detail']:.2f}",
+                f"{metrics['original']['color']:.2f}",
+                "Original"
+            ]
+        })
+        st.dataframe(metrics_df, hide_index=True)
+        
+    with col2:
+        st.markdown("### 📈 Enhanced Metrics")
+        metrics_df = pd.DataFrame({
+            'Metric': ['✨ Sharpness', '🎯 Contrast', '🔍 Detail', '🎨 Color', '📱 Resolution'],
+            'Value': [
+                f"{metrics['enhanced']['sharpness']:.2f}",
+                f"{metrics['enhanced']['contrast']:.2f}",
+                f"{metrics['enhanced']['detail']:.2f}",
+                f"{metrics['enhanced']['color']:.2f}",
+                "5K (5120x2880)"
+            ]
+        })
+        st.dataframe(metrics_df, hide_index=True)
+
+def display_enhancement_history():
+    """Display enhancement attempt history."""
+    if st.session_state.enhancement_attempts:
+        st.markdown("### 📝 Enhancement History")
+        history_df = pd.DataFrame([
+            {
+                'Attempt': attempt['attempt'],
+                'Contrast': f"{attempt['parameters']['contrast']:.2f}",
+                'Sharpness': f"{attempt['parameters']['sharpness']:.2f}",
+                'Color': f"{attempt['parameters']['color']:.2f}",
+                'Score': f"{attempt['score']:.2f}"
+            }
+            for attempt in st.session_state.enhancement_attempts
+        ])
+        st.dataframe(history_df, hide_index=True)
 
 def main():
-    """Main application entry point."""
-    st.title("✨ AI Image Enhancer")
+    """Main application function."""
+    st.set_page_config(
+        page_title="AI Image Enhancer",
+        page_icon="🖼️",
+        layout="wide"
+    )
+    
+    # Initialize session state
+    initialize_session_state()
+    
+    st.title("🖼️ AI Image Enhancer")
     st.markdown("""
-        Enhance your images with AI-powered features and real-time quality feedback.
-        Upload an image and adjust the settings to get started!
+    Enhance your images to 5K resolution with advanced AI-powered techniques. Upload an image and let
+    our system optimize it with multiple enhancement attempts to achieve the perfect high-resolution result.
     """)
     
-    # Sidebar
-    st.sidebar.title("Settings")
-    quality = st.sidebar.slider(
-        "Target Quality",
-        min_value=0.0,
-        max_value=1.0,
-        value=0.95,
-        step=0.05,
-        help="Higher values produce better quality but take longer",
+    # Sidebar settings
+    st.sidebar.title("⚙️ Settings")
+    
+    # Quality thresholds
+    st.sidebar.subheader("Quality Thresholds")
+    
+    # Update thresholds only if changed
+    new_thresholds = {
+        'sharpness': st.sidebar.slider("Sharpness Threshold", 0.0, 1.0, st.session_state.thresholds['sharpness'], 0.01),
+        'contrast': st.sidebar.slider("Contrast Threshold", 0.0, 1.0, st.session_state.thresholds['contrast'], 0.01),
+        'noise': st.sidebar.slider("Noise Threshold", 0.0, 1.0, st.session_state.thresholds['noise'], 0.01),
+        'detail': st.sidebar.slider("Detail Threshold", 0.0, 1.0, st.session_state.thresholds['detail'], 0.01),
+        'color': st.sidebar.slider("Color Threshold", 0.0, 1.0, st.session_state.thresholds['color'], 0.01)
+    }
+    
+    # Only update if thresholds changed
+    if new_thresholds != st.session_state.thresholds:
+        st.session_state.thresholds = new_thresholds
+        st.session_state.processor.update_thresholds(**new_thresholds)
+    
+    # Enhancement strategy selection
+    st.sidebar.subheader("Enhancement Strategy")
+    strategy_name = st.sidebar.selectbox(
+        "Select Strategy",
+        ["Auto"] + [s.value for s in EnhancementStrategy],
+        index=0
     )
     
-    resolution = st.sidebar.selectbox(
-        "Target Resolution",
-        options=["4k", "5k", "8k"],
-        index=1,
-        help="Higher resolutions require more GPU memory",
-    )
+    strategy = EnhancementStrategy.AUTO if strategy_name == "Auto" else EnhancementStrategy(strategy_name)
     
-    # File uploader
-    uploaded_file = st.file_uploader(
-        "Choose an image",
-        type=["png", "jpg", "jpeg"],
-        help="Upload an image to enhance",
-    )
+    # Model information
+    st.sidebar.subheader("🤖 AI Model Status")
+    if torch.cuda.is_available():
+        st.sidebar.success("GPU Acceleration: Enabled")
+    else:
+        st.sidebar.warning("GPU Acceleration: Disabled (Using CPU)")
+    
+    # Image upload
+    uploaded_file = st.file_uploader("Choose an image...", type=['png', 'jpg', 'jpeg'])
     
     if uploaded_file:
-        # Load and display input image
-        image = load_image(uploaded_file.read())
-        if image is not None:
-            st.subheader("Input Image")
-            st.image(image, use_column_width=True)
+        # Load and display original image
+        image = load_image(uploaded_file)
+        
+        if image:
+            # Process image
+            with st.spinner("Enhancing image to 5K resolution..."):
+                enhanced_image, metrics = process_image(image, strategy)
             
-            # Process button
-            if st.button("✨ Enhance Image"):
-                # Initialize progress
-                progress_ui = ProgressUI()
-                progress_bar = st.progress(0)
-                status_text = st.empty()
+            # Display images side by side
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.markdown("### Original Image")
+                st.image(image, use_container_width=True)
                 
-                try:
-                    # Process image
-                    processed_image, info = process_image(
-                        image,
-                        quality,
-                        resolution,
-                        progress_ui
-                    )
-                    
-                    # Display results
-                    st.subheader("Enhanced Image")
-                    st.image(processed_image, use_column_width=True)
-                    
-                    # Display metrics
-                    col1, col2, col3 = st.columns(3)
-                    with col1:
-                        st.metric("Quality Score", f"{info['quality_score']:.2f}")
-                    with col2:
-                        st.metric("Processing Time", f"{info['duration']:.1f}s")
-                    with col3:
-                        st.metric("Resolution", resolution.upper())
-                    
-                    # Display detailed metrics
-                    with st.expander("View Detailed Metrics"):
-                        st.json(info['metrics'])
-                    
-                except Exception as e:
-                    st.error(f"Error processing image: {str(e)}")
-                    
-                finally:
-                    # Clear progress
-                    progress_bar.empty()
-                    status_text.empty()
-    
-    # Footer
-    st.markdown("---")
-    st.markdown(
-        "Made with ❤️ by Your Team | "
-        "[GitHub](https://github.com/yourusername/image-enhancer) | "
-        "[Documentation](https://github.com/yourusername/image-enhancer/docs)"
-    )
+            with col2:
+                st.markdown("### Enhanced Image (5K)")
+                st.image(enhanced_image, use_container_width=True)
+                
+            # Display metrics
+            display_metrics(metrics)
+            
+            # Display enhancement history
+            display_enhancement_history()
+            
+            # Download button for enhanced image
+            buf = io.BytesIO()
+            enhanced_image.save(buf, format='PNG', quality=100)
+            st.download_button(
+                label="Download Enhanced 5K Image",
+                data=buf.getvalue(),
+                file_name="enhanced_5k_image.png",
+                mime="image/png"
+            )
 
 if __name__ == "__main__":
     main()

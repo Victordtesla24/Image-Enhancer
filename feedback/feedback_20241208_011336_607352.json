@@ -1,0 +1,11 @@
+{
+  "quality_rating": 4,
+  "aspect_ratings": {
+    "sharpness": 4,
+    "color": 3
+  },
+  "enhancement_params": {
+    "sharpness": 1.2
+  },
+  "timestamp": "2024-12-08T01:13:36.607341"
+}

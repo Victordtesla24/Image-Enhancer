@@ -26,6 +26,17 @@ class ErrorHandler:
             "processing_time": 30.0,  # 30 seconds timeout
         }
 
+    def initialize(self) -> None:
+        """Initialize error handler."""
+        if hasattr(self, 'initialized') and self.initialized:
+            return
+        
+        self.initialized = True
+        self.error_history = []
+        self.error_counts = {}
+        self.last_error = None
+        self.last_error_time = None
+
     def handle_error(
         self,
         error: Exception,
