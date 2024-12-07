@@ -1,191 +1,130 @@
-# 5K AI Image Enhancer - Architecture Documentation
+# Architecture Overview
 
-## System Architecture Overview
+## Project Structure
 
-### Core Components
+```
+image-enhancer/
+├── src/
+│   └── utils/
+│       ├── core/
+│       │   └── processor.py
+│       └── quality_management/
+│           ├── __init__.py
+│           ├── quality_manager.py
+│           ├── basic_metrics.py
+│           ├── processing_accuracy.py
+│           ├── quality_improvement.py
+│           ├── configuration.py
+│           └── performance_metrics.py
+├── tests/
+│   ├── conftest.py
+│   ├── test_basic_metrics.py
+│   ├── test_processing_accuracy.py
+│   ├── test_quality_improvement.py
+│   ├── test_edge_cases.py
+│   ├── test_configuration.py
+│   └── test_performance_metrics.py
+└── docs/
+    ├── architecture.md
+    ├── testing_architecture.md
+    └── implementation_plans.md
+```
 
-1. **AI Enhancement Models**
-   ```python
-   class EnhancementModel:
-       def __init__(self):
-           self.quality_manager = QualityManager()
-           self.feedback_history = []
-           self.enhancement_history = []
-           self.parameters = self.default_parameters()
-           
-       def enhance(self, image):
-           """Enhance image with quality feedback"""
-           pass
-           
-       def adapt_to_feedback(self, feedback):
-           """Learn from user feedback"""
-           pass
-   ```
+## Components
 
-2. **Quality Management System**
-   ```python
-   class QualityManager:
-       def __init__(self):
-           self.metrics = {
-               'sharpness': deque(maxlen=100),
-               'color_accuracy': deque(maxlen=100),
-               'detail_preservation': deque(maxlen=100),
-               'noise_level': deque(maxlen=100)
-           }
-           self.enhancement_history = deque(maxlen=10)
-           self.feedback_history = deque(maxlen=10)
-   ```
+### Quality Management System
 
-3. **Enhancement Pipeline**
-   ```python
-   class EnhancementPipeline:
-       def __init__(self):
-           self.models = {
-               'super_res': SuperResolutionModel(),
-               'detail': DetailEnhancementModel(),
-               'color': ColorEnhancementModel()
-           }
-           self.quality_manager = QualityManager()
-   ```
+The quality management system is split into focused modules for better memory management and performance:
 
-### Enhancement Components
+1. **QualityManager** (quality_manager.py)
+   - Main orchestrator class
+   - Coordinates between different components
+   - Manages high-level quality analysis workflow
 
-1. **Super Resolution Model**
-   - 5K resolution upscaling
-   - Detail preservation
-   - Quality verification
-   - Parameter adaptation
-   - Feedback integration
+2. **BasicMetricsCalculator** (basic_metrics.py)
+   - Handles basic image quality metrics
+   - Calculates sharpness, contrast, detail, color, noise, texture, pattern
+   - Memory-efficient metric calculations
 
-2. **Detail Enhancement Model**
-   - Edge preservation
-   - Texture enhancement
-   - Sharpness control
-   - Noise management
-   - Quality monitoring
+3. **ProcessingAccuracyAnalyzer** (processing_accuracy.py)
+   - Analyzes processing accuracy
+   - Calculates SSIM, PSNR, feature preservation
+   - Handles color accuracy analysis
 
-3. **Color Enhancement Model**
-   - Color accuracy
-   - Dynamic range
-   - White balance
-   - Saturation control
-   - Color preservation
+4. **QualityImprovementAnalyzer** (quality_improvement.py)
+   - Tracks quality improvements
+   - Generates analysis feedback
+   - Manages improvement metrics
 
-### Quality Management
+5. **ConfigurationManager** (configuration.py)
+   - Manages system configuration
+   - Handles thresholds and settings
+   - Maintains metrics history
 
-1. **Real-time Metrics**
-   - Sharpness measurement
-   - Color accuracy tracking
-   - Detail preservation
-   - Noise level monitoring
-   - Resolution verification
+6. **PerformanceMetricsCalculator** (performance_metrics.py)
+   - Calculates performance-related metrics
+   - Handles edge preservation, color consistency
+   - Manages artifact detection
 
-2. **Quality Parameters**
-   - Enhancement strength
-   - Detail preservation
-   - Color balance
-   - Noise reduction
-   - Sharpness control
+## Memory Management
 
-### User Feedback Integration
+The modular structure provides several memory optimization benefits:
 
-1. **Feedback Collection**
-   ```python
-   class FeedbackCollector:
-       def collect_feedback(self, enhanced_image):
-           """Collect and process user feedback"""
-           feedback = {
-               'sharpness_satisfaction': float,
-               'color_satisfaction': float,
-               'detail_satisfaction': float
-           }
-           return feedback
-   ```
+1. **Component Isolation**
+   - Each module handles specific calculations
+   - Memory usage is contained within components
+   - Resources are released after component execution
 
-2. **Learning System**
-   ```python
-   class EnhancementLearner:
-       def adapt_parameters(self, feedback_history):
-           """Adapt enhancement parameters based on feedback"""
-           pass
-   ```
+2. **Efficient Processing**
+   - Calculations are performed in focused steps
+   - Memory is allocated only when needed
+   - Temporary results are cleaned up properly
 
-### Implementation Details
+3. **API Call Management**
+   - Reduced risk of API throttling
+   - Calculations are distributed across components
+   - Better control over external service usage
 
-1. **Enhancement Process**
-   - Image analysis
-   - Quality assessment
-   - Parameter selection
-   - Enhancement application
-   - Result verification
+## Data Flow
 
-2. **Quality Control**
-   - Metric calculation
-   - Parameter adjustment
-   - Result validation
-   - Feedback processing
-   - History tracking
+1. Image input → QualityManager
+2. QualityManager coordinates with components:
+   - BasicMetricsCalculator for basic metrics
+   - PerformanceMetricsCalculator for advanced metrics
+   - ProcessingAccuracyAnalyzer for accuracy analysis
+   - QualityImprovementAnalyzer for improvement tracking
+3. Results aggregated and returned
+4. ConfigurationManager maintains state and history
 
-3. **User Interaction**
-   - Parameter control
-   - Quality visualization
-   - Feedback collection
-   - Progress tracking
-   - Result comparison
+## Extension Points
 
-### Testing Architecture
+The modular architecture allows for easy extension:
 
-1. **Quality Tests**
-   - Enhancement quality
-   - Detail preservation
-   - Color accuracy
-   - Resolution maintenance
-   - Performance metrics
+1. **New Metrics**
+   - Add new calculation methods to appropriate modules
+   - Extend existing calculators or create new ones
 
-2. **User Interaction Tests**
-   - Feedback processing
-   - Parameter adjustment
-   - Learning system
-   - History tracking
-   - Interface response
+2. **Custom Analysis**
+   - Create new analyzer components
+   - Integrate with existing workflow
 
-3. **Integration Tests**
-   - Pipeline workflow
-   - Model coordination
-   - Quality management
-   - Feedback integration
-   - Result validation
+3. **Configuration**
+   - Extend configuration options
+   - Add new thresholds and settings
 
-### Future Enhancements
+## Best Practices
 
-1. **AI Models**
-   - Advanced learning algorithms
-   - Style transfer capabilities
-   - Context awareness
-   - Adaptive enhancement
-   - Performance optimization
+1. **Memory Management**
+   - Release resources after use
+   - Use efficient data structures
+   - Implement proper cleanup
 
-2. **User Experience**
-   - Advanced visualization
-   - Interactive adjustment
-   - Progress tracking
-   - Result comparison
-   - History management
+2. **Error Handling**
+   - Each component handles its errors
+   - Proper logging and reporting
+   - Graceful degradation
 
-3. **Quality Management**
-   - Advanced metrics
-   - Automated optimization
-   - Style preservation
-   - Context awareness
-   - Performance monitoring
-
-### Token Management
-
-This architecture document is automatically updated at 1M tokens to maintain system design accuracy.
-
-### Last Update: 2024-01-22
-- Document Version: 2.5.0
-- Token Count: 0
-- Next Update: 2024-01-23 00:00:00 UTC
-
-This architecture documentation provides a comprehensive overview of the AI-powered image enhancement system, focusing on quality management, user feedback integration, and 5K image processing capabilities.
+3. **Testing**
+   - Comprehensive test coverage
+   - Component isolation for testing
+   - Performance benchmarking

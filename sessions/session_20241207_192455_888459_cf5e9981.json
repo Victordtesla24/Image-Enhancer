@@ -1,0 +1,27 @@
+{
+  "id": "20241207_192455_888459_cf5e9981",
+  "start_time": "2024-12-07T19:24:55.888490",
+  "status": "completed",
+  "operations": [],
+  "metrics": {},
+  "end_time": "2024-12-07T19:24:55.907972",
+  "results": {
+    "initial_metrics": {
+      "sharpness": 0.0,
+      "contrast": 0.0,
+      "detail": 0.0,
+      "color": 0.0,
+      "noise": 1.0,
+      "texture": 0.0,
+      "pattern": 0.0,
+      "edge_preservation": 0.0,
+      "color_consistency": 0.6666666666666666,
+      "local_contrast": 0.0,
+      "artifact_level": 1.0,
+      "dynamic_range": 0.0
+    },
+    "final_metrics": {
+      "sharpness": 0.0,
+      "contrast": 0.0,
+      "detail": 0.0,
+      "color": 

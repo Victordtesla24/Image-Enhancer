@@ -1,44 +1,36 @@
-"""Detail Enhancement Model with advanced processing capabilities"""
+"""Detail enhancement model."""
+
+import logging
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as TF
-import torchvision.transforms as transforms
-from torchvision.models import resnet50, ResNet50_Weights
-import logging
-from typing import Dict
-from ..core.base_model import AIModel
+from torchvision.models import ResNet50_Weights, resnet50
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class DetailEnhancementModel(AIModel):
-    """Detail Enhancement Model with professional-grade improvements"""
 
-    def __init__(self):
-        super().__init__(
-            "DetailEnhance", "Professional Detail Enhancement with adaptive processing"
-        )
-        self.normalize = transforms.Normalize(
-            mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]
-        )
-        self.parameters = {
-            'sharpness': 0.7,
-            'detail_level': 0.7,
-            'noise_reduction': 0.5,
-            'detail_boost': 1.2,
-            'edge_preservation': 0.8,
-        }
+class DetailEnhancementModel:
+    """Detail enhancement model for image enhancement."""
 
-    def update_parameters(self, parameters: Dict):
-        """Update model parameters"""
-        for key, value in parameters.items():
-            if key in self.parameters:
-                self.parameters[key] = float(value)
-        logger.info(f"Updated parameters: {self.parameters}")
+    def __init__(
+        self, name: str = "detail", description: str = "Detail enhancement model"
+    ):
+        """Initialize detail enhancement model.
+
+        Args:
+            name: Model name
+            description: Model description
+        """
+        self.name = name
+        self.description = description
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.feature_extractor = None
+        self.detail_enhance = None
+        self.model_params = {}
+        self.load()
 
     def load(self):
+        """Load model architecture and weights."""
         try:
             backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
             self.feature_extractor = nn.Sequential(*list(backbone.children())[:-2])
@@ -55,117 +47,125 @@ class DetailEnhancementModel(AIModel):
                 nn.Sigmoid(),
             )
 
+            # Move to device
             self.feature_extractor.to(self.device)
             self.detail_enhance.to(self.device)
-            self.feature_extractor.eval()
-            self.detail_enhance.eval()
-            self.loaded = True
+
+            logger.info("Successfully loaded Detail Enhancement model")
 
         except Exception as e:
-            logger.error(f"Error loading Detail Enhancement model: {str(e)}")
+            logger.error(f"Error loading Detail Enhancement model: {e}")
             raise
 
-    def enhance(self, image: torch.Tensor) -> torch.Tensor:
-        with torch.no_grad():
-            try:
-                # Process in batches for large images
-                if image.shape[2] * image.shape[3] > 2048 * 2048:
-                    return self._batch_process(image)
+    def process(self, x):
+        """Process input tensor.
 
-                # Store original image statistics
-                orig_mean = torch.mean(image)
-                orig_std = torch.std(image)
+        Args:
+            x: Input tensor
 
-                # Extract features with improved detail preservation
-                features = self.feature_extractor(self.normalize(image))
-                detail_mask = self.detail_enhance(features)
+        Returns:
+            Enhanced tensor
+        """
+        try:
+            # Move input to device
+            x = x.to(self.device)
 
-                # Advanced upscaling with detail preservation
-                detail_mask = TF.interpolate(
-                    detail_mask,
-                    size=image.shape[2:],
-                    mode="bicubic",
-                    align_corners=True,
+            # Extract features
+            features = self.feature_extractor(x)
+
+            # Apply enhancement
+            enhanced = self.detail_enhance(features)
+
+            # Resize to match input
+            if enhanced.shape != x.shape:
+                enhanced = nn.functional.interpolate(
+                    enhanced, size=x.shape[2:], mode="bilinear", align_corners=False
                 )
 
-                # Improved adaptive detail enhancement with parameter control
-                detail_strength = torch.mean(
-                    torch.abs(detail_mask), dim=1, keepdim=True
-                )
-                enhancement_factor = torch.clamp(
-                    self.parameters['detail_level'] / (detail_strength + 1e-5),
-                    0.4 * self.parameters['edge_preservation'],
-                    0.8 * self.parameters['detail_boost']
-                )
-                enhanced = image + enhancement_factor * detail_mask
+            return enhanced
 
-                # Normalize to maintain proper value range
-                enhanced = (enhanced - enhanced.min()) / (
-                    enhanced.max() - enhanced.min()
-                )
+        except Exception as e:
+            logger.error(f"Error processing with Detail Enhancement model: {e}")
+            return x
 
-                # Multi-scale contrast enhancement with parameter control
-                scales = [3, 5, 7]
-                contrast_enhanced = enhanced
+    def update_parameters(self, parameters: dict):
+        """Update model parameters.
 
-                for kernel_size in scales:
-                    padding = kernel_size // 2
-                    local_mean = TF.avg_pool2d(
-                        contrast_enhanced,
-                        kernel_size=kernel_size,
-                        stride=1,
-                        padding=padding,
-                    )
-                    local_var = (
-                        TF.avg_pool2d(
-                            contrast_enhanced**2,
-                            kernel_size=kernel_size,
-                            stride=1,
-                            padding=padding,
+        Args:
+            parameters: New parameter values
+        """
+        self.model_params.update(parameters)
+
+    def _validate_params(self):
+        """Validate model parameters."""
+        # No required parameters for now
+        pass
+
+    def to_torchscript(self):
+        """Convert model to TorchScript.
+
+        Returns:
+            TorchScript model
+        """
+        try:
+            # Create forward function
+            class DetailModule(nn.Module):
+                def __init__(self, feature_extractor, detail_enhance):
+                    super().__init__()
+                    self.feature_extractor = feature_extractor
+                    self.detail_enhance = detail_enhance
+
+                def forward(self, x):
+                    features = self.feature_extractor(x)
+                    enhanced = self.detail_enhance(features)
+                    if enhanced.shape != x.shape:
+                        enhanced = nn.functional.interpolate(
+                            enhanced,
+                            size=x.shape[2:],
+                            mode="bilinear",
+                            align_corners=False,
                         )
-                        - local_mean**2
-                    )
-                    local_std = torch.sqrt(torch.clamp(local_var, min=1e-6))
+                    return enhanced
 
-                    normalized = (contrast_enhanced - local_mean) / (local_std + 1e-6)
-                    contrast_enhanced = local_mean + local_std * normalized * self.parameters['detail_boost']
+            # Create module and convert
+            module = DetailModule(self.feature_extractor, self.detail_enhance)
+            return torch.jit.script(module)
 
-                # Preserve original image statistics
-                current_mean = torch.mean(contrast_enhanced)
-                current_std = torch.std(contrast_enhanced)
+        except Exception as e:
+            logger.error(
+                f"Error converting Detail Enhancement model to TorchScript: {e}"
+            )
+            return None
 
-                # Adjust mean and standard deviation
-                normalized = (contrast_enhanced - current_mean) / (current_std + 1e-6)
-                result = normalized * orig_std + orig_mean
+    def optimize_memory(self):
+        """Optimize model memory usage."""
+        try:
+            # Clear unused memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-                # Apply sharpening based on parameter
-                if self.parameters['sharpness'] > 0:
-                    kernel = torch.tensor([
-                        [-1, -1, -1],
-                        [-1,  9, -1],
-                        [-1, -1, -1]
-                    ], device=self.device).view(1, 1, 3, 3) * self.parameters['sharpness']
-                    kernel = kernel.repeat(3, 1, 1, 1)
-                    sharpened = TF.conv2d(result, kernel, padding=1, groups=3)
-                    result = torch.lerp(result, sharpened, self.parameters['sharpness'])
+            # Move unused tensors to CPU
+            for param in self.feature_extractor.parameters():
+                if not param.requires_grad:
+                    param.data = param.data.cpu()
 
-                # Apply noise reduction if enabled
-                if self.parameters['noise_reduction'] > 0:
-                    kernel_size = int(3 + 2 * self.parameters['noise_reduction'])
-                    if kernel_size % 2 == 0:
-                        kernel_size += 1
-                    result = TF.avg_pool2d(result, kernel_size, stride=1, padding=kernel_size//2)
+            for param in self.detail_enhance.parameters():
+                if not param.requires_grad:
+                    param.data = param.data.cpu()
 
-                # Ensure proper value range while preserving brightness
-                result = torch.clamp(result, 0.05, 0.95)
+        except Exception as e:
+            logger.error(f"Error optimizing Detail Enhancement model memory: {e}")
 
-                return result
+    def cleanup(self):
+        """Clean up resources."""
+        try:
+            # Clear model data
+            self.feature_extractor = None
+            self.detail_enhance = None
 
-            except Exception as e:
-                logger.error(f"Error in Detail enhancement: {str(e)}")
-                return image
+            # Clear CUDA cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-    def _batch_process(self, image: torch.Tensor) -> torch.Tensor:
-        """Process large images in batches"""
-        # Implementation for batch processing
-        return image
+        except Exception as e:
+            logger.error(f"Error cleaning up Detail Enhancement model: {e}")

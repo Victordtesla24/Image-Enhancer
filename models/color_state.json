@@ -1,0 +1,15 @@
+{
+  "parameters": {
+    "param1": 1.0,
+    "param2": 2.0
+  },
+  "metadata": {
+    "version": "unknown",
+    "timestamp": "2024-12-08T00:16:39.836002",
+    "parameters": {
+      "param1": 1.0,
+      "param2": 2.0
+    },
+    "last_updated": "2024-12-08T00:16:39.836009"
+  }
+}

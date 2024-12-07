@@ -2,233 +2,225 @@
 
 import logging
 import time
-import threading
-from typing import Dict, Optional, Callable, Any
-from enum import Enum
-import traceback
-from dataclasses import dataclass
-from collections import deque
+from typing import Any, Dict, List, Optional, Union
+
 import torch
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class ErrorSeverity(Enum):
-    """Error severity levels"""
-    LOW = 1      # Minor issues, can continue
-    MEDIUM = 2   # Significant issues, needs attention
-    HIGH = 3     # Critical issues, needs immediate action
-    FATAL = 4    # Unrecoverable, must halt
-
-class ErrorCategory(Enum):
-    """Categories of errors for better organization"""
-    MEMORY = "memory"
-    COMPUTATION = "computation"
-    RESOURCE = "resource"
-    MODEL = "model"
-    DATA = "data"
-    SYSTEM = "system"
-
-@dataclass
-class ErrorContext:
-    """Context information for errors"""
-    timestamp: float
-    severity: ErrorSeverity
-    category: ErrorCategory
-    message: str
-    stacktrace: str
-    recovery_attempts: int = 0
-    resolved: bool = False
-
-class SystemHealthStatus:
-    """System health monitoring"""
-    def __init__(self):
-        self.metrics = {
-            'memory_pressure': 0.0,
-            'gpu_health': 1.0,
-            'error_rate': 0.0,
-            'recovery_success_rate': 1.0
-        }
-        self.error_history = deque(maxlen=100)
-        
-    def update_metrics(self, error_context: ErrorContext):
-        """Update health metrics based on new error"""
-        self.error_history.append(error_context)
-        
-        # Update error rate
-        recent_errors = len([e for e in self.error_history 
-                           if time.time() - e.timestamp < 300])  # Last 5 minutes
-        self.metrics['error_rate'] = recent_errors / 100
-        
-        # Update recovery success rate
-        if self.error_history:
-            resolved = len([e for e in self.error_history if e.resolved])
-            self.metrics['recovery_success_rate'] = resolved / len(self.error_history)
-        
-        # Update GPU health if available
-        if torch.cuda.is_available():
-            try:
-                memory_used = torch.cuda.memory_allocated() / torch.cuda.get_device_properties(0).total_memory
-                self.metrics['memory_pressure'] = memory_used
-                self.metrics['gpu_health'] = 1.0 - (memory_used * 0.8)  # Degrade health as memory pressure increases
-            except Exception:
-                self.metrics['gpu_health'] = 0.0
-
-class RecoveryStrategy:
-    """Base class for recovery strategies"""
-    def __init__(self, max_attempts: int = 3):
-        self.max_attempts = max_attempts
-    
-    def can_attempt_recovery(self, context: ErrorContext) -> bool:
-        """Check if recovery can be attempted"""
-        return context.recovery_attempts < self.max_attempts
-    
-    def execute(self, context: ErrorContext) -> bool:
-        """Execute recovery strategy"""
-        raise NotImplementedError
-
-class MemoryRecoveryStrategy(RecoveryStrategy):
-    """Recovery strategy for memory-related issues"""
-    def execute(self, context: ErrorContext) -> bool:
-        try:
-            if torch.cuda.is_available():
-                # Clear CUDA cache
-                torch.cuda.empty_cache()
-                
-                # Force garbage collection
-                import gc
-                gc.collect()
-                
-                # Verify memory was freed
-                if torch.cuda.memory_allocated() < torch.cuda.get_device_properties(0).total_memory * 0.8:
-                    return True
-            return False
-        except Exception:
-            return False
-
-class ComputationRecoveryStrategy(RecoveryStrategy):
-    """Recovery strategy for computation-related issues"""
-    def execute(self, context: ErrorContext) -> bool:
-        try:
-            if torch.cuda.is_available():
-                # Reset GPU device
-                device = torch.device('cuda')
-                torch.cuda.empty_cache()
-                torch.cuda.reset_peak_memory_stats(device)
-                return True
-            return False
-        except Exception:
-            return False
-
-class ResourceRecoveryStrategy(RecoveryStrategy):
-    """Recovery strategy for resource-related issues"""
-    def execute(self, context: ErrorContext) -> bool:
-        try:
-            # Release and reallocate resources
-            if torch.cuda.is_available():
-                torch.cuda.empty_cache()
-                
-                # Try to reinitialize CUDA
-                device = torch.device('cuda')
-                torch.cuda.reset_peak_memory_stats(device)
-                
-                # Verify GPU is responsive
-                test_tensor = torch.zeros((1,), device=device)
-                del test_tensor
-                return True
-            return False
-        except Exception:
-            return False
 
 class ErrorHandler:
-    """Central error handling system"""
-    def __init__(self):
-        self.health_status = SystemHealthStatus()
-        self.recovery_strategies = {
-            ErrorCategory.MEMORY: MemoryRecoveryStrategy(),
-            ErrorCategory.COMPUTATION: ComputationRecoveryStrategy(),
-            ErrorCategory.RESOURCE: ResourceRecoveryStrategy()
-        }
-        self._error_queue = deque(maxlen=1000)
-        self._recovery_thread = None
-        self._stop_recovery = False
-        
-    def start_recovery_worker(self):
-        """Start background recovery worker"""
-        self._stop_recovery = False
-        self._recovery_thread = threading.Thread(target=self._recovery_worker)
-        self._recovery_thread.daemon = True
-        self._recovery_thread.start()
-        
-    def stop_recovery_worker(self):
-        """Stop background recovery worker"""
-        self._stop_recovery = True
-        if self._recovery_thread:
-            self._recovery_thread.join()
-    
-    def _recovery_worker(self):
-        """Background worker for processing recovery attempts"""
-        while not self._stop_recovery:
-            if self._error_queue:
-                error_context = self._error_queue.popleft()
-                self._attempt_recovery(error_context)
-            time.sleep(0.1)
-    
-    def _attempt_recovery(self, context: ErrorContext):
-        """Attempt to recover from an error"""
-        strategy = self.recovery_strategies.get(context.category)
-        if strategy and strategy.can_attempt_recovery(context):
-            context.recovery_attempts += 1
-            success = strategy.execute(context)
-            if success:
-                context.resolved = True
-                logger.info(f"Successfully recovered from {context.category.value} error")
-            else:
-                logger.warning(f"Recovery attempt {context.recovery_attempts} failed for {context.category.value} error")
-                if context.recovery_attempts < strategy.max_attempts:
-                    self._error_queue.append(context)
-    
-    def handle_error(self, error: Exception, category: ErrorCategory, 
-                    severity: ErrorSeverity = ErrorSeverity.MEDIUM) -> None:
-        """Handle an error with the appropriate strategy"""
-        context = ErrorContext(
-            timestamp=time.time(),
-            severity=severity,
-            category=category,
-            message=str(error),
-            stacktrace=traceback.format_exc()
-        )
-        
-        # Update health metrics
-        self.health_status.update_metrics(context)
-        
-        # Log error
-        logger.error(f"Error occurred - Category: {category.value}, Severity: {severity.name}")
-        logger.error(f"Message: {context.message}")
-        logger.error(f"Stacktrace: {context.stacktrace}")
-        
-        # Queue for recovery if appropriate
-        if severity != ErrorSeverity.FATAL:
-            self._error_queue.append(context)
-        else:
-            logger.critical("Fatal error occurred - immediate attention required")
-    
-    def get_health_metrics(self) -> Dict[str, float]:
-        """Get current system health metrics"""
-        return self.health_status.metrics
+    """Handles errors and exceptions in the enhancement pipeline."""
 
-def with_error_handling(category: ErrorCategory, severity: ErrorSeverity = ErrorSeverity.MEDIUM):
-    """Decorator for automatic error handling"""
-    def decorator(func: Callable) -> Callable:
-        def wrapper(*args, **kwargs) -> Any:
-            try:
-                return func(*args, **kwargs)
-            except Exception as e:
-                error_handler = ErrorHandler()
-                error_handler.handle_error(e, category, severity)
-                if severity == ErrorSeverity.FATAL:
-                    raise
-                return None
-        return wrapper
-    return decorator
+    def __init__(self):
+        """Initialize error handler."""
+        self.logger = logging.getLogger(__name__)
+        self.error_history: List[Dict[str, Any]] = []
+        self.recovery_attempts: Dict[str, int] = {}
+        self.max_recovery_attempts = 3
+        self.error_thresholds = {
+            "memory": 0.9,  # 90% memory usage threshold
+            "gpu_memory": 0.85,  # 85% GPU memory threshold
+            "processing_time": 30.0,  # 30 seconds timeout
+        }
+
+    def handle_error(
+        self,
+        error: Exception,
+        context: Dict[str, Union[str, int, float]],
+    ) -> Optional[Dict]:
+        """Handle an error with context and attempt recovery.
+
+        Args:
+            error: The exception that occurred
+            context: Dictionary with error context
+
+        Returns:
+            Recovery instructions if available, None otherwise
+        """
+        error_info = {
+            "type": type(error).__name__,
+            "message": str(error),
+            "context": context,
+            "timestamp": time.time(),
+            "recovered": False,
+        }
+
+        # Generate error ID for tracking recovery attempts
+        error_id = f"{error_info['type']}_{context.get('operation', 'unknown')}"
+
+        # Track recovery attempts
+        if error_id in self.recovery_attempts:
+            self.recovery_attempts[error_id] += 1
+        else:
+            self.recovery_attempts[error_id] = 1
+
+        # Attempt recovery if within limits
+        if self.recovery_attempts[error_id] <= self.max_recovery_attempts:
+            recovery_instructions = self._attempt_recovery(error, context)
+            if recovery_instructions:
+                error_info["recovered"] = True
+                error_info["recovery"] = recovery_instructions
+
+        self.error_history.append(error_info)
+        self.logger.error(
+            "Error occurred: {} - {}".format(
+                error_info['type'], 
+                error_info['message']
+            )
+        )
+
+        return error_info.get("recovery")
+
+    def _attempt_recovery(
+        self,
+        error: Exception,
+        context: Dict[str, Any],
+    ) -> Optional[Dict]:
+        """Attempt to recover from error.
+
+        Args:
+            error: The exception that occurred
+            context: Error context
+
+        Returns:
+            Recovery instructions if available
+        """
+        if isinstance(error, torch.cuda.OutOfMemoryError):
+            return self._handle_gpu_memory_error(context)
+        elif isinstance(error, MemoryError):
+            return self._handle_memory_error(context)
+        elif isinstance(error, TimeoutError):
+            return self._handle_timeout_error(context)
+        elif isinstance(error, ValueError):
+            return self._handle_validation_error(context)
+        return None
+
+    def _handle_gpu_memory_error(self, context: Dict[str, Any]) -> Dict:
+        """Handle GPU memory errors.
+
+        Args:
+            context: Error context
+
+        Returns:
+            Recovery instructions
+        """
+        current_batch = context.get("batch_size", 1)
+        return {
+            "action": "reduce_batch_size",
+            "current_batch_size": current_batch,
+            "recommended_batch_size": max(1, current_batch // 2),
+            "clear_cache": True,
+        }
+
+    def _handle_memory_error(self, context: Dict[str, Any]) -> Dict:
+        """Handle system memory errors.
+
+        Args:
+            context: Error context
+
+        Returns:
+            Recovery instructions
+        """
+        return {
+            "action": "optimize_memory",
+            "clear_cache": True,
+            "reduce_precision": True,
+            "enable_checkpointing": True,
+        }
+
+    def _handle_timeout_error(self, context: Dict[str, Any]) -> Dict:
+        """Handle timeout errors.
+
+        Args:
+            context: Error context
+
+        Returns:
+            Recovery instructions
+        """
+        current_timeout = context.get("timeout", 30)
+        new_timeout = min(current_timeout * 1.5, 120)
+        return {
+            "action": "optimize_processing",
+            "timeout": new_timeout,
+            "enable_async": True,
+            "reduce_quality": True,
+        }
+
+    def _handle_validation_error(self, context: Dict[str, Any]) -> Dict:
+        """Handle validation errors.
+
+        Args:
+            context: Error context
+
+        Returns:
+            Recovery instructions
+        """
+        return {
+            "action": "validate_input",
+            "validation_rules": self._get_validation_rules(context),
+            "sanitize_input": True,
+        }
+
+    def _get_validation_rules(self, context: Dict[str, Any]) -> Dict:
+        """Get validation rules based on context.
+
+        Args:
+            context: Error context
+
+        Returns:
+            Validation rules
+        """
+        return {
+            "image": {
+                "min_size": (32, 32),
+                "max_size": (8192, 8192),
+                "formats": ["jpg", "png", "jpeg"],
+            },
+            "parameters": {
+                "range": (0.0, 2.0),
+                "types": ["float", "int"],
+                "required": ["quality", "format"],
+            },
+        }
+
+    def verify_tensor(self, tensor: torch.Tensor) -> bool:
+        """Verify tensor validity.
+
+        Args:
+            tensor: Tensor to verify
+
+        Returns:
+            True if tensor is valid
+        """
+        try:
+            if not isinstance(tensor, torch.Tensor):
+                return False
+            if torch.isnan(tensor).any():
+                return False
+            if torch.isinf(tensor).any():
+                return False
+            if not tensor.is_contiguous():
+                tensor = tensor.contiguous()
+            return True
+        except Exception as e:
+            shape = (
+                str(tensor.shape) if hasattr(tensor, "shape") else "unknown"
+            )
+            self.handle_error(e, {"tensor_shape": shape})
+            return False
+
+    def get_error_history(self) -> List[Dict]:
+        """Get the error history.
+
+        Returns:
+            List of error dictionaries
+        """
+        return self.error_history
+
+    def clear_error_history(self) -> None:
+        """Clear the error history."""
+        self.error_history = []
+        self.recovery_attempts = {}

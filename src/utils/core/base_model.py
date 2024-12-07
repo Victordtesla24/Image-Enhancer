@@ -1,52 +1,58 @@
 """Base AI model class definition"""
 
-import gc
-import torch
 import logging
-from typing import Optional
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
 class AIModel:
-    """Base class for AI models"""
+    """Base class for all enhancement models."""
 
-    def __init__(self, name: str, description: str):
+    def __init__(self, name: str, description: str = "", model_params: dict = None):
+        """Initialize the base model with parameters.
+
+        Args:
+            name: Model name
+            description: Model description
+            model_params: Optional model parameters
+        """
+        self.logger = logging.getLogger(__name__)
         self.name = name
         self.description = description
-        self.model = None
-        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-        self.loaded = False
+        self.model_params = model_params or {}
+        self._validate_params()
 
-    def load(self):
-        """Load model - to be implemented by subclasses"""
-        raise NotImplementedError
+    def _validate_params(self):
+        """Validate model parameters."""
+        required_params = self._get_required_params()
+        for param in required_params:
+            if param not in self.model_params:
+                raise ValueError(f"Missing required parameter: {param}")
 
-    def enhance(self, image: torch.Tensor) -> torch.Tensor:
-        """Enhance image - to be implemented by subclasses"""
-        raise NotImplementedError
+    def _get_required_params(self):
+        """Get list of required parameters.
 
-    def cleanup(self):
-        """Cleanup model resources"""
-        if hasattr(self, "model") and self.model is not None:
-            del self.model
-        if hasattr(self, "feature_extractor"):
-            del self.feature_extractor
-        torch.cuda.empty_cache()
-        gc.collect()
+        Returns:
+            List of parameter names
+        """
+        return []
 
-    def _batch_process(
-        self, image: torch.Tensor, section_height: int = 1024
-    ) -> torch.Tensor:
-        """Process large images in batches"""
-        _, _, H, W = image.shape
-        sections = []
+    def process(self, input_data):
+        """Process input data.
 
-        for i in range(0, H, section_height):
-            section = image[:, :, i : min(i + section_height, H), :]
-            enhanced_section = self.enhance(section)
-            sections.append(enhanced_section)
+        Args:
+            input_data: Input data dictionary
 
-        return torch.cat(sections, dim=2)
+        Returns:
+            Processed data dictionary
+        """
+        raise NotImplementedError("Process method must be implemented")
+
+    def update_parameters(self, parameters: dict):
+        """Update model parameters.
+
+        Args:
+            parameters: New parameter values
+        """
+        self.model_params.update(parameters)
+        self._validate_params()

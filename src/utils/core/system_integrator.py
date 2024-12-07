@@ -1,374 +1,383 @@
 """System integration and coordination module"""
 
 import logging
-import threading
 import time
-from typing import Dict, List, Optional, Callable, Any
-from dataclasses import dataclass
-from collections import deque
-import numpy as np
-import torch
-import torch.distributed as dist
-from .error_handler import ErrorHandler, ErrorCategory, ErrorSeverity, with_error_handling
-from .gpu_accelerator import GPUAccelerator
+from typing import Any, Dict, List, Optional
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+import psutil
+import torch
+
 logger = logging.getLogger(__name__)
 
-@dataclass
-class ProcessingNode:
-    """Represents a processing node in the distributed system"""
-    node_id: str
-    gpu_accelerator: GPUAccelerator
-    is_master: bool = False
-    status: str = "idle"
-    current_load: float = 0.0
-    tasks_processed: int = 0
-
-class LoadBalancer:
-    """Manages workload distribution across processing nodes"""
-    def __init__(self):
-        self.nodes: Dict[str, ProcessingNode] = {}
-        self.error_handler = ErrorHandler()
-        self.task_queue = deque()
-        self._stop_balancing = False
-        self._balance_thread = None
-    
-    def start_balancing(self):
-        """Start the load balancing thread"""
-        self._stop_balancing = False
-        self._balance_thread = threading.Thread(target=self._balance_loop)
-        self._balance_thread.daemon = True
-        self._balance_thread.start()
-    
-    def stop_balancing(self):
-        """Stop the load balancing thread"""
-        self._stop_balancing = True
-        if self._balance_thread:
-            self._balance_thread.join()
-    
-    def _balance_loop(self):
-        """Main load balancing loop"""
-        while not self._stop_balancing:
-            if self.task_queue:
-                task = self.task_queue.popleft()
-                node = self._select_optimal_node()
-                if node:
-                    self._assign_task(task, node)
-            time.sleep(0.1)
-    
-    @with_error_handling(category=ErrorCategory.RESOURCE)
-    def _select_optimal_node(self) -> Optional[ProcessingNode]:
-        """Select the optimal node for task execution"""
-        if not self.nodes:
-            return None
-            
-        return min(
-            self.nodes.values(),
-            key=lambda n: (n.current_load, n.tasks_processed)
-        )
-    
-    @with_error_handling(category=ErrorCategory.RESOURCE)
-    def _assign_task(self, task: Dict, node: ProcessingNode) -> None:
-        """Assign a task to a specific node"""
-        try:
-            node.status = "processing"
-            node.current_load += task.get("estimated_load", 0.1)
-            node.tasks_processed += 1
-            
-            # Allocate resources through GPU accelerator
-            result = node.gpu_accelerator.allocate_resources(task)
-            
-            if result["status"] != "allocated":
-                raise RuntimeError(f"Failed to allocate resources: {result['reason']}")
-                
-        except Exception as e:
-            self.error_handler.handle_error(e, ErrorCategory.RESOURCE)
-            node.status = "error"
-        finally:
-            node.current_load = max(0.0, node.current_load - task.get("estimated_load", 0.1))
-
-class PipelineCoordinator:
-    """Coordinates processing pipelines across nodes"""
-    def __init__(self):
-        self.pipelines: Dict[str, List[str]] = {}
-        self.load_balancer = LoadBalancer()
-        self.error_handler = ErrorHandler()
-    
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def create_pipeline(self, pipeline_id: str, stages: List[str]) -> None:
-        """Create a new processing pipeline"""
-        self.pipelines[pipeline_id] = stages
-        logger.info(f"Created pipeline {pipeline_id} with {len(stages)} stages")
-    
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def execute_pipeline(self, pipeline_id: str, data: Any) -> Optional[Any]:
-        """Execute a processing pipeline"""
-        if pipeline_id not in self.pipelines:
-            raise ValueError(f"Pipeline {pipeline_id} not found")
-            
-        result = data
-        for stage in self.pipelines[pipeline_id]:
-            task = {
-                "stage": stage,
-                "data": result,
-                "estimated_load": 0.2
-            }
-            self.load_balancer.task_queue.append(task)
-            # Wait for stage completion
-            while self.load_balancer.task_queue:
-                time.sleep(0.1)
-            
-        return result
-
-class DistributedManager:
-    """Manages distributed processing setup and coordination"""
-    def __init__(self, world_size: int = 1):
-        self.world_size = world_size
-        self.error_handler = ErrorHandler()
-        self.nodes: Dict[str, ProcessingNode] = {}
-        
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def initialize_distributed(self) -> None:
-        """Initialize distributed processing environment"""
-        if not dist.is_available():
-            raise RuntimeError("PyTorch distributed not available")
-            
-        if not dist.is_initialized():
-            dist.init_process_group(backend='nccl' if torch.cuda.is_available() else 'gloo')
-    
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def setup_node(self, node_id: str, is_master: bool = False) -> None:
-        """Setup a new processing node"""
-        accelerator = GPUAccelerator()
-        node = ProcessingNode(
-            node_id=node_id,
-            gpu_accelerator=accelerator,
-            is_master=is_master
-        )
-        self.nodes[node_id] = node
-        logger.info(f"Set up node {node_id} (master: {is_master})")
 
 class SystemMonitor:
-    """Monitors overall system health and performance"""
-    def __init__(self):
-        self.metrics: Dict[str, deque] = {
-            'system_load': deque(maxlen=100),
-            'pipeline_latency': deque(maxlen=100),
-            'error_rate': deque(maxlen=100),
-            'node_health': deque(maxlen=100)
-        }
-        self.error_handler = ErrorHandler()
-        self._monitor_thread = None
-        self._stop_monitoring = False
-    
-    def start_monitoring(self):
-        """Start system monitoring"""
-        self._stop_monitoring = False
-        self._monitor_thread = threading.Thread(target=self._monitor_loop)
-        self._monitor_thread.daemon = True
-        self._monitor_thread.start()
-    
-    def stop_monitoring(self):
-        """Stop system monitoring"""
-        self._stop_monitoring = True
-        if self._monitor_thread:
-            self._monitor_thread.join()
-    
-    def _monitor_loop(self):
-        """Main monitoring loop"""
-        while not self._stop_monitoring:
-            try:
-                # Collect system metrics
-                self.metrics['system_load'].append(self._get_system_load())
-                self.metrics['node_health'].append(self._get_node_health())
-                
-                # Check error handler metrics
-                error_metrics = self.error_handler.get_health_metrics()
-                self.metrics['error_rate'].append(error_metrics['error_rate'])
-                
-                # Log critical issues
-                if error_metrics['error_rate'] > 0.5:
-                    logger.warning("High error rate detected")
-                
-            except Exception as e:
-                self.error_handler.handle_error(e, ErrorCategory.SYSTEM)
+    """Monitors system resources and performance."""
+
+    def __init__(self, sampling_interval: float = 1.0):
+        """Initialize system monitor.
+        
+        Args:
+            sampling_interval: Sampling interval in seconds
+        """
+        self.sampling_interval = sampling_interval
+        self.metrics_history = []
+        self.last_update = 0
+        self.update_interval = 1.0  # seconds
+        self.initialized = False
+        self.start_time = time.time()
+
+    def initialize(self):
+        """Initialize monitoring system."""
+        if self.initialized:
+            return
             
-            time.sleep(5)  # Update every 5 seconds
-    
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def _get_system_load(self) -> float:
-        """Get current system load"""
-        if torch.cuda.is_available():
-            return torch.cuda.utilization() / 100.0
-        return 0.0
-    
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def _get_node_health(self) -> float:
-        """Get overall node health metric"""
-        if torch.cuda.is_available():
-            memory_pressure = torch.cuda.memory_allocated() / torch.cuda.get_device_properties(0).total_memory
-            return 1.0 - memory_pressure
-        return 1.0
-    
-    def get_system_metrics(self) -> Dict[str, float]:
-        """Get current system metrics"""
-        return {
-            'system_load': float(np.mean(self.metrics['system_load'])) if self.metrics['system_load'] else 0,
-            'error_rate': float(np.mean(self.metrics['error_rate'])) if self.metrics['error_rate'] else 0,
-            'node_health': float(np.mean(self.metrics['node_health'])) if self.metrics['node_health'] else 1.0
+        self.metrics_history = []
+        self.last_update = time.time()
+        self.start_time = time.time()
+        self.initialized = True
+
+    def get_system_metrics(self) -> dict:
+        """Get current system metrics.
+        
+        Returns:
+            Dictionary of system metrics
+        """
+        if not self.initialized:
+            self.initialize()
+            
+        import psutil
+        metrics = {
+            "memory": {
+                "total": psutil.virtual_memory().total,
+                "available": psutil.virtual_memory().available,
+                "used": psutil.virtual_memory().used,
+                "percent": psutil.virtual_memory().percent,
+            },
+            "cpu": {
+                "usage_percent": psutil.cpu_percent(),
+                "count": psutil.cpu_count(),
+                "frequency": psutil.cpu_freq()._asdict() if psutil.cpu_freq() else {},
+                "load_avg": psutil.getloadavg(),
+            },
+            "disk": {
+                "total": psutil.disk_usage("/").total,
+                "used": psutil.disk_usage("/").used,
+                "free": psutil.disk_usage("/").free,
+                "percent": psutil.disk_usage("/").percent,
+            },
+            "network": {
+                "bytes_sent": psutil.net_io_counters().bytes_sent,
+                "bytes_recv": psutil.net_io_counters().bytes_recv,
+                "packets_sent": psutil.net_io_counters().packets_sent,
+                "packets_recv": psutil.net_io_counters().packets_recv,
+            },
+            "timestamp": time.time(),
+            "uptime": time.time() - psutil.boot_time(),
         }
+
+        # Add GPU metrics if available
+        try:
+            import torch
+            if torch.cuda.is_available():
+                metrics["gpu"] = {
+                    "count": torch.cuda.device_count(),
+                    "devices": [{
+                        "name": torch.cuda.get_device_name(i),
+                        "memory_allocated": torch.cuda.memory_allocated(i),
+                        "memory_reserved": torch.cuda.memory_reserved(i),
+                    } for i in range(torch.cuda.device_count())]
+                }
+        except:
+            pass
+
+        # Always update history
+        self.metrics_history.append({
+            "timestamp": time.time(),
+            "metrics": metrics.copy()
+        })
+
+        return metrics
+
+    def get_metrics_history(self, limit: Optional[int] = None) -> List[Dict]:
+        """Get metrics history.
+        
+        Args:
+            limit: Optional limit on number of records
+            
+        Returns:
+            List of metric dictionaries
+        """
+        if limit:
+            return self.metrics_history[-limit:]
+        return self.metrics_history
+
+    def get_resource_utilization(self) -> dict:
+        """Get resource utilization trends.
+        
+        Returns:
+            Dictionary of resource utilization trends
+        """
+        metrics = self.get_system_metrics()
+        
+        utilization = {
+            "cpu_usage": metrics["cpu"]["usage_percent"],
+            "memory_usage": metrics["memory"]["percent"],
+            "disk_usage": metrics["disk"]["percent"],
+            "uptime": time.time() - self.start_time,
+        }
+        
+        if "gpu" in metrics:
+            utilization["gpu_usage"] = [
+                device["memory_allocated"] / device["memory_reserved"]
+                for device in metrics["gpu"]["devices"]
+                if device["memory_reserved"] > 0
+            ]
+            
+        return utilization
+
+
+class ResourceManager:
+    """Manages system resources for processing."""
+
+    def __init__(self, memory_limit: float = 0.8, cpu_limit: float = 0.9):
+        """Initialize resource manager.
+        
+        Args:
+            memory_limit: Maximum memory usage fraction (0-1)
+            cpu_limit: Maximum CPU usage fraction (0-1)
+        """
+        self.memory_limit = memory_limit
+        self.cpu_limit = cpu_limit
+        self.allocated_resources = {}
+        self.resource_limits = {}
+        self.initialized = False
+        self.monitor = SystemMonitor()
+
+    def initialize(self):
+        """Initialize resource management system."""
+        if self.initialized:
+            return
+        
+        self.monitor.initialize()
+        self.resource_limits = {
+            'memory': self._get_available_memory(),
+            'gpu_memory': self._get_available_gpu_memory(),
+            'cpu_cores': self._get_available_cpu_cores()
+        }
+        self.initialized = True
+
+    def check_resource_availability(self, required_memory: int = 0) -> bool:
+        """Check if required resources are available.
+        
+        Args:
+            required_memory: Required memory in bytes
+            
+        Returns:
+            True if resources are available
+        """
+        if not self.initialized:
+            self.initialize()
+            
+        available_memory = self._get_available_memory()
+        if required_memory > available_memory * self.memory_limit:
+            return False
+            
+        import psutil
+        if psutil.cpu_percent() > self.cpu_limit * 100:
+            return False
+            
+        return True
+
+    def allocate_resources(self, task_id: str, memory: int = 0) -> bool:
+        """Allocate resources for a task.
+        
+        Args:
+            task_id: Task identifier
+            memory: Required memory in bytes
+            
+        Returns:
+            True if allocation successful
+        """
+        if not self.check_resource_availability(memory):
+            return False
+            
+        self.allocated_resources[task_id] = {
+            'memory': memory,
+            'timestamp': time.time()
+        }
+        return True
+
+    def release_resources(self, task_id: str):
+        """Release resources allocated to a task.
+        
+        Args:
+            task_id: Task identifier
+        """
+        self.allocated_resources.pop(task_id, None)
+
+    def get_allocation_status(self) -> dict:
+        """Get current resource allocation status.
+        
+        Returns:
+            Dictionary containing allocation status
+        """
+        if not self.initialized:
+            self.initialize()
+            
+        import psutil
+        return {
+            'allocated_resources': self.allocated_resources,
+            'available_memory': self._get_available_memory(),
+            'memory_usage_percent': psutil.virtual_memory().percent,
+            'cpu_usage_percent': psutil.cpu_percent(),
+            'gpu_memory_available': self._get_available_gpu_memory()
+        }
+
+    def _get_available_memory(self) -> int:
+        """Get available system memory in bytes."""
+        import psutil
+        return psutil.virtual_memory().available
+
+    def _get_available_gpu_memory(self) -> int:
+        """Get available GPU memory in bytes."""
+        try:
+            import torch
+            if torch.cuda.is_available():
+                return torch.cuda.get_device_properties(0).total_memory
+        except:
+            pass
+        return 0
+
+    def _get_available_cpu_cores(self) -> int:
+        """Get number of available CPU cores."""
+        import multiprocessing
+        return multiprocessing.cpu_count()
+
 
 class SystemIntegrator:
-    """Main system integration controller"""
+    """Integrates system components and manages resources."""
+
     def __init__(self):
-        self.distributed_manager = DistributedManager()
-        self.pipeline_coordinator = PipelineCoordinator()
-        self.system_monitor = SystemMonitor()
-        self.error_handler = ErrorHandler()
-        self.fault_tolerance_enabled = False
-        
-    def initialize_system(self, world_size: int = 1) -> None:
-        """Initialize the entire system"""
-        try:
-            # Initialize distributed processing
-            self.distributed_manager.initialize_distributed()
-            
-            # Setup nodes
-            for i in range(world_size):
-                self.distributed_manager.setup_node(
-                    f"node_{i}",
-                    is_master=(i == 0)
-                )
-            
-            # Start monitoring and load balancing
-            self.system_monitor.start_monitoring()
-            self.pipeline_coordinator.load_balancer.start_balancing()
-            
-            logger.info("System initialization complete")
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, ErrorCategory.SYSTEM, ErrorSeverity.FATAL)
-            raise
-    
-    def shutdown_system(self) -> None:
-        """Shutdown the system gracefully"""
-        try:
-            self.system_monitor.stop_monitoring()
-            self.pipeline_coordinator.load_balancer.stop_balancing()
-            
-            # Cleanup distributed resources
-            if dist.is_initialized():
-                dist.destroy_process_group()
-                
-            logger.info("System shutdown complete")
-            
-        except Exception as e:
-            self.error_handler.handle_error(e, ErrorCategory.SYSTEM)
-            raise
-    
-    def get_system_status(self) -> Dict:
-        """Get overall system status"""
-        return {
-            'metrics': self.system_monitor.get_system_metrics(),
-            'health': self.error_handler.get_health_metrics(),
-            'nodes': len(self.distributed_manager.nodes)
+        """Initialize system integrator."""
+        self.logger = logging.getLogger(__name__)
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.components = {}
+        self.monitor = SystemMonitor()
+        self.resource_manager = ResourceManager()
+
+    def register_component(self, name: str, component: object):
+        """Register a system component.
+
+        Args:
+            name: Component name
+            component: Component instance
+        """
+        self.components[name] = component
+        self.logger.info(f"Registered component: {name}")
+
+    def get_component(self, name: str) -> Optional[object]:
+        """Get a registered component.
+
+        Args:
+            name: Component name
+
+        Returns:
+            Component instance or None
+        """
+        return self.components.get(name)
+
+    def remove_component(self, name: str):
+        """Remove a registered component.
+
+        Args:
+            name: Component name
+        """
+        if name in self.components:
+            del self.components[name]
+            self.logger.info(f"Removed component: {name}")
+
+    def get_system_info(self) -> Dict:
+        """Get comprehensive system information.
+
+        Returns:
+            System information dictionary
+        """
+        info = {
+            "device": str(self.device),
+            "components": list(self.components.keys()),
+            "system_metrics": self.monitor.get_system_metrics(),
+            "resource_utilization": self.monitor.get_resource_utilization(),
+            "allocation_status": self.resource_manager.get_allocation_status(),
         }
 
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def get_processing_capacity(self) -> float:
-        """Get current processing capacity of the system"""
-        total_capacity = 0.0
-        
+        return info
+
+    def check_system_health(self) -> Dict:
+        """Check system health status.
+
+        Returns:
+            System health information
+        """
+        metrics = self.monitor.get_system_metrics()
+
+        # Define health thresholds
+        thresholds = {
+            "cpu_warning": 80,
+            "cpu_critical": 90,
+            "memory_warning": 80,
+            "memory_critical": 90,
+            "disk_warning": 80,
+            "disk_critical": 90,
+        }
+
+        health_status = {"status": "healthy", "warnings": [], "metrics": metrics}
+
+        # Check CPU usage
+        cpu_usage = metrics["cpu"]["usage_percent"]
+        if cpu_usage > thresholds["cpu_critical"]:
+            health_status["status"] = "critical"
+            health_status["warnings"].append(f"Critical CPU usage: {cpu_usage}%")
+        elif cpu_usage > thresholds["cpu_warning"]:
+            health_status["status"] = "warning"
+            health_status["warnings"].append(f"High CPU usage: {cpu_usage}%")
+
+        # Check memory usage
+        memory_usage = metrics["memory"]["percent"]
+        if memory_usage > thresholds["memory_critical"]:
+            health_status["status"] = "critical"
+            health_status["warnings"].append(f"Critical memory usage: {memory_usage}%")
+        elif memory_usage > thresholds["memory_warning"]:
+            health_status["status"] = "warning"
+            health_status["warnings"].append(f"High memory usage: {memory_usage}%")
+
+        # Check disk usage
+        disk_usage = metrics["disk"]["percent"]
+        if disk_usage > thresholds["disk_critical"]:
+            health_status["status"] = "critical"
+            health_status["warnings"].append(f"Critical disk usage: {disk_usage}%")
+        elif disk_usage > thresholds["disk_warning"]:
+            health_status["status"] = "warning"
+            health_status["warnings"].append(f"High disk usage: {disk_usage}%")
+
+        return health_status
+
+    def cleanup(self):
+        """Clean up system resources."""
+        for name, component in self.components.items():
+            if hasattr(component, "cleanup"):
+                component.cleanup()
+            self.logger.info(f"Cleaned up component: {name}")
+
         if torch.cuda.is_available():
-            # Calculate based on GPU utilization and memory
-            for node in self.distributed_manager.nodes.values():
-                metrics = node.gpu_accelerator.performance_monitor.get_current_metrics()
-                available_capacity = 1.0 - (metrics['gpu_utilization'] / 100.0)
-                total_capacity += available_capacity
-                
-        return total_capacity / max(1, len(self.distributed_manager.nodes))
+            torch.cuda.empty_cache()
+            torch.cuda.reset_peak_memory_stats()
 
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def distribute_workload(self, workloads: List[Callable]) -> Dict[str, List[Callable]]:
-        """Distribute workload across available nodes"""
-        if not self.distributed_manager.nodes:
-            raise RuntimeError("No processing nodes available")
-            
-        distribution: Dict[str, List[Callable]] = {
-            node_id: [] for node_id in self.distributed_manager.nodes
-        }
-        
-        # Simple round-robin distribution
-        node_ids = list(self.distributed_manager.nodes.keys())
-        for i, workload in enumerate(workloads):
-            node_id = node_ids[i % len(node_ids)]
-            distribution[node_id].append(workload)
-            
-        return distribution
-
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def get_network_capacity(self) -> float:
-        """Get current network capacity"""
-        if not dist.is_initialized():
-            return 0.0
-            
+    def analyze_system_performance(self):
+        """Analyze system performance metrics."""
         try:
-            # Estimate network capacity through ping test
-            if len(self.distributed_manager.nodes) > 1:
-                start_time = time.time()
-                test_tensor = torch.ones(1)
-                if torch.cuda.is_available():
-                    test_tensor = test_tensor.cuda()
-                dist.broadcast(test_tensor, src=0)
-                latency = time.time() - start_time
-                
-                # Convert latency to a capacity metric (0.0 to 1.0)
-                # Lower latency = higher capacity
-                return max(0.0, 1.0 - (latency / 0.1))  # Assuming 100ms is the threshold
-            return 1.0  # Single node system
-            
-        except Exception:
-            return 0.0
-
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def enable_fault_tolerance(self) -> None:
-        """Enable fault tolerance mechanisms"""
-        self.fault_tolerance_enabled = True
-        
-        # Configure fault tolerance for each node
-        for node in self.distributed_manager.nodes.values():
-            # Set up error handling with recovery
-            node.gpu_accelerator.error_handler.start_recovery_worker()
-            
-        logger.info("Fault tolerance enabled")
-
-    @with_error_handling(category=ErrorCategory.SYSTEM)
-    def measure_performance(self) -> Dict[str, float]:
-        """Measure system performance metrics"""
-        performance_metrics = {}
-        
-        # Collect metrics from all nodes
-        for node_id, node in self.distributed_manager.nodes.items():
-            metrics = node.gpu_accelerator.performance_monitor.get_current_metrics()
-            performance_metrics[node_id] = {
-                'processing_capacity': self.get_processing_capacity(),
-                'network_capacity': self.get_network_capacity(),
-                'gpu_utilization': metrics['gpu_utilization'],
-                'memory_usage': metrics['memory_usage'],
-                'operation_latency': metrics['operation_latency']
-            }
-            
-        # Calculate system-wide averages
-        if performance_metrics:
-            avg_metrics = {
-                'avg_processing_capacity': np.mean([m['processing_capacity'] for m in performance_metrics.values()]),
-                'avg_network_capacity': np.mean([m['network_capacity'] for m in performance_metrics.values()]),
-                'avg_gpu_utilization': np.mean([m['gpu_utilization'] for m in performance_metrics.values()]),
-                'avg_memory_usage': np.mean([m['memory_usage'] for m in performance_metrics.values()]),
-                'avg_operation_latency': np.mean([m['operation_latency'] for m in performance_metrics.values()])
-            }
-            performance_metrics['system_averages'] = avg_metrics
-            
-        return performance_metrics
+            metrics = self._collect_performance_metrics()
+            self._process_metrics(metrics)
+            # Remove unused variable
+            self._update_performance_stats()
+        except Exception as e:
+            self.logger.error(f"Error analyzing system performance: {e}")

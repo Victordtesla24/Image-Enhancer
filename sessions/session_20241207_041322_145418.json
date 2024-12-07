@@ -1,0 +1,11 @@
+{
+  "id": "20241207_041322_145418",
+  "start_time": "2024-12-07T04:13:22.145440",
+  "status": "completed",
+  "operations": [],
+  "metrics": {},
+  "end_time": "2024-12-07T04:13:22.147913",
+  "results": {
+    "error": "'Tensor' object has no attribute 'copy'"
+  }
+}

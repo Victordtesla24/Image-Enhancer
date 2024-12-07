@@ -1,0 +1,12 @@
+{
+  "quality_rating": 3,
+  "aspect_ratings": {
+    "sharpness": 3
+  },
+  "enhancement_params": {
+    "contrast": 1.0
+  },
+  "issues": null,
+  "suggestion": null,
+  "timestamp": 1733562659.5707572
+}

@@ -1,166 +1,171 @@
-"""Color Enhancement Model with professional color processing capabilities"""
+"""Color enhancement model."""
+
+import logging
 
 import torch
 import torch.nn as nn
-import torch.nn.functional as TF
-import logging
-from typing import Dict
-from ..core.base_model import AIModel
+from torchvision.models import ResNet50_Weights, resnet50
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-class ColorEnhancementModel(AIModel):
-    """Color Enhancement Model with professional color processing"""
 
-    def __init__(self):
-        super().__init__(
-            "ColorEnhance", "Professional Color Enhancement with natural preservation"
-        )
-        self.parameters = {
-            'saturation': 1.2,
-            'contrast': 1.15,
-            'brightness': 1.1,
-            'color_balance': 1.0,
-            'color_boost': 0.7,
-            'detail_level': 0.7,
-        }
+class ColorEnhancementModel:
+    """Color enhancement model for image enhancement."""
 
-    def update_parameters(self, parameters: Dict):
-        """Update model parameters"""
-        for key, value in parameters.items():
-            if key in self.parameters:
-                self.parameters[key] = float(value)
-        logger.info(f"Updated parameters: {self.parameters}")
+    def __init__(
+        self, name: str = "color", description: str = "Color enhancement model"
+    ):
+        """Initialize color enhancement model.
+
+        Args:
+            name: Model name
+            description: Model description
+        """
+        self.name = name
+        self.description = description
+        self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+        self.feature_extractor = None
+        self.color_enhance = None
+        self.model_params = {}
+        self.load()
 
     def load(self):
+        """Load model architecture and weights."""
         try:
-            # Improved color processing layers
+            backbone = resnet50(weights=ResNet50_Weights.IMAGENET1K_V2)
+            self.feature_extractor = nn.Sequential(*list(backbone.children())[:-2])
+
+            # Enhanced color processing with residual connections
             self.color_enhance = nn.Sequential(
-                nn.Conv2d(3, 64, kernel_size=3, padding=1),
+                nn.Conv2d(2048, 1024, kernel_size=3, padding=1),
                 nn.LeakyReLU(0.2, True),
-                nn.Conv2d(64, 64, kernel_size=3, padding=1),
+                nn.Conv2d(1024, 512, kernel_size=3, padding=1),
                 nn.LeakyReLU(0.2, True),
-                nn.Conv2d(64, 32, kernel_size=3, padding=1),
+                nn.Conv2d(512, 256, kernel_size=3, padding=1),
                 nn.LeakyReLU(0.2, True),
-                nn.Conv2d(32, 3, kernel_size=3, padding=1),
+                nn.Conv2d(256, 3, kernel_size=3, padding=1),
                 nn.Sigmoid(),
             )
 
-            # Initialize with improved weights
-            for m in self.color_enhance.modules():
-                if isinstance(m, nn.Conv2d):
-                    nn.init.kaiming_normal_(m.weight)
-                    if m.bias is not None:
-                        nn.init.zeros_(m.bias)
-
+            # Move to device
+            self.feature_extractor.to(self.device)
             self.color_enhance.to(self.device)
-            self.color_enhance.eval()
-            self.loaded = True
+
+            logger.info("Successfully loaded Color Enhancement model")
 
         except Exception as e:
-            logger.error(f"Error loading Color Enhancement model: {str(e)}")
+            logger.error(f"Error loading Color Enhancement model: {e}")
             raise
 
-    def enhance(self, image: torch.Tensor) -> torch.Tensor:
-        with torch.no_grad():
-            try:
-                # Process in batches for large images
-                if image.shape[2] * image.shape[3] > 2048 * 2048:
-                    return self._batch_process(image)
+    def process(self, x):
+        """Process input tensor.
 
-                # Store original image statistics per channel
-                orig_mean_channels = torch.mean(image, dim=(2, 3), keepdim=True)
-                orig_std_channels = torch.std(image, dim=(2, 3), keepdim=True)
+        Args:
+            x: Input tensor
 
-                # Initial enhancement with parameter control
-                enhanced = self.color_enhance(image)
+        Returns:
+            Enhanced tensor
+        """
+        try:
+            # Move input to device
+            x = x.to(self.device)
 
-                # Blend with original based on color_boost parameter
-                blend_factor = self.parameters['color_boost']
-                enhanced = enhanced * blend_factor + image * (1 - blend_factor)
+            # Extract features
+            features = self.feature_extractor(x)
 
-                # Calculate luminance
-                luminance = (
-                    0.299 * image[:, 0:1]
-                    + 0.587 * image[:, 1:2]
-                    + 0.114 * image[:, 2:3]
+            # Apply enhancement
+            enhanced = self.color_enhance(features)
+
+            # Resize to match input
+            if enhanced.shape != x.shape:
+                enhanced = nn.functional.interpolate(
+                    enhanced, size=x.shape[2:], mode="bilinear", align_corners=False
                 )
-                luminance = luminance.repeat(1, 3, 1, 1)
 
-                # Brightness adjustment with parameter control
-                mean_luminance = torch.mean(luminance)
-                brightness_factor = self.parameters['brightness']
-                if mean_luminance < 0.4:  # Dark image
-                    enhanced = enhanced * torch.clamp(
-                        brightness_factor + (1 - luminance) * 0.1,
-                        0.95,
-                        1.05 * brightness_factor
-                    )
-                elif mean_luminance > 0.6:  # Bright image
-                    enhanced = enhanced * torch.clamp(
-                        1.0 + luminance * 0.1 * (2 - brightness_factor),
-                        0.95,
-                        1.05
-                    )
+            return enhanced
 
-                # Local contrast enhancement with parameter control
-                kernel_size = 5
-                padding = kernel_size // 2
-                contrast_factor = self.parameters['contrast']
+        except Exception as e:
+            logger.error(f"Error processing with Color Enhancement model: {e}")
+            return x
 
-                local_mean = TF.avg_pool2d(
-                    enhanced, kernel_size, stride=1, padding=padding
-                )
-                local_var = (
-                    TF.avg_pool2d(enhanced**2, kernel_size, stride=1, padding=padding)
-                    - local_mean**2
-                )
-                local_std = torch.sqrt(torch.clamp(local_var, min=1e-6))
+    def update_parameters(self, parameters: dict):
+        """Update model parameters.
 
-                normalized = (enhanced - local_mean) / (local_std + 1e-6)
-                enhanced = local_mean + local_std * normalized * contrast_factor
+        Args:
+            parameters: New parameter values
+        """
+        self.model_params.update(parameters)
 
-                # Process each channel separately with color balance control
-                color_balance = self.parameters['color_balance']
-                saturation = self.parameters['saturation']
-                
-                for c in range(3):
-                    channel = enhanced[:, c:c+1]
-                    orig_mean = orig_mean_channels[:, c:c+1]
-                    orig_std = orig_std_channels[:, c:c+1]
+    def _validate_params(self):
+        """Validate model parameters."""
+        # No required parameters for now
+        pass
 
-                    # Normalize and restore original statistics with color balance
-                    channel_mean = torch.mean(channel, dim=(2, 3), keepdim=True)
-                    channel_std = torch.std(channel, dim=(2, 3), keepdim=True)
+    def to_torchscript(self):
+        """Convert model to TorchScript.
 
-                    channel = (channel - channel_mean) / (channel_std + 1e-6)
-                    channel = channel * (orig_std * color_balance) + orig_mean
+        Returns:
+            TorchScript model
+        """
+        try:
+            # Create forward function
+            class ColorModule(nn.Module):
+                def __init__(self, feature_extractor, color_enhance):
+                    super().__init__()
+                    self.feature_extractor = feature_extractor
+                    self.color_enhance = color_enhance
 
-                    # Apply saturation
-                    channel = torch.lerp(
-                        torch.mean(channel),
-                        channel,
-                        saturation
-                    )
+                def forward(self, x):
+                    features = self.feature_extractor(x)
+                    enhanced = self.color_enhance(features)
+                    if enhanced.shape != x.shape:
+                        enhanced = nn.functional.interpolate(
+                            enhanced,
+                            size=x.shape[2:],
+                            mode="bilinear",
+                            align_corners=False,
+                        )
+                    return enhanced
 
-                    enhanced[:, c:c+1] = channel
+            # Create module and convert
+            module = ColorModule(self.feature_extractor, self.color_enhance)
+            return torch.jit.script(module)
 
-                # Final blend with original based on detail preservation
-                detail_preservation = self.parameters['detail_level']
-                result = enhanced * (1 - detail_preservation) + image * detail_preservation
+        except Exception as e:
+            logger.error(
+                f"Error converting Color Enhancement model to TorchScript: {e}"
+            )
+            return None
 
-                # Ensure values are in valid range
-                result = torch.clamp(result, 0.0, 1.0)
+    def optimize_memory(self):
+        """Optimize model memory usage."""
+        try:
+            # Clear unused memory
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
 
-                return result
+            # Move unused tensors to CPU
+            for param in self.feature_extractor.parameters():
+                if not param.requires_grad:
+                    param.data = param.data.cpu()
 
-            except Exception as e:
-                logger.error(f"Error in Color enhancement: {str(e)}")
-                return image
+            for param in self.color_enhance.parameters():
+                if not param.requires_grad:
+                    param.data = param.data.cpu()
 
-    def _batch_process(self, image: torch.Tensor) -> torch.Tensor:
-        """Process large images in batches"""
-        # Implementation for batch processing
-        return image
+        except Exception as e:
+            logger.error(f"Error optimizing Color Enhancement model memory: {e}")
+
+    def cleanup(self):
+        """Clean up resources."""
+        try:
+            # Clear model data
+            self.feature_extractor = None
+            self.color_enhance = None
+
+            # Clear CUDA cache
+            if torch.cuda.is_available():
+                torch.cuda.empty_cache()
+
+        except Exception as e:
+            logger.error(f"Error cleaning up Color Enhancement model: {e}")

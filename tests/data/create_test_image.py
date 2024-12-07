@@ -1,8 +1,9 @@
 """Create a test image for UI testing"""
 
-from PIL import Image, ImageDraw
-import numpy as np
 import os
+
+import numpy as np
+from PIL import Image, ImageDraw
 
 
 def create_test_image():

@@ -1,0 +1,117 @@
+{
+  "feedback_history": [
+    {
+      "quality_rating": 4,
+      "aspect_ratings": {
+        "sharpness": 4,
+        "color": 3
+      },
+      "enhancement_params": {
+        "sharpness": 1.2
+      },
+      "timestamp": "2024-12-07T18:14:09.566937"
+    },
+    {
+      "quality_rating": 4,
+      "aspect_ratings": {
+        "sharpness": 3
+      },
+      "enhancement_params": {
+        "contrast": 1.5
+      },
+      "timestamp": "2024-12-07T18:14:09.598745"
+    },
+    {
+      "quality_rating": 4,
+      "aspect_ratings": {
+        "sharpness": 4
+      },
+      "enhancement_params": {
+        "contrast": 1.1
+      },
+      "timestamp": "2024-12-07T18:14:09.602627"
+    },
+    {
+      "quality_rating": 1,
+      "aspect_ratings": {
+        "sharpness": 1
+      },
+      "enhancement_params": {
+        "contrast": 1.0
+      },
+      "timestamp": "2024-12-07T18:14:09.623626"
+    },
+    {
+      "quality_rating": 2,
+      "aspect_ratings": {
+        "sharpness": 2
+      },
+      "enhancement_params": {
+        "contrast": 1.0
+      },
+      "timestamp": "2024-12-07T18:14:09.624358"
+    },
+    {
+      "quality_rating": 3,
+      "aspect_ratings": {
+        "sharpness": 3
+      },
+      "enhancement_params": {
+        "contrast": 1.0
+      },
+      "timestamp": "2024-12-07T18:14:09.625113"
+    }
+  ],
+  "style_profiles": {
+    "profile_0": {
+      "parameters": {
+        "sharpness": 1.2
+      },
+      "ratings": {
+        "sharpness": 4.0,
+        "color": 3
+      },
+      "quality_rating": 4.0,
+      "created_at": "2024-12-07T18:14:09.567211",
+      "updated_at": "2024-12-07T18:14:09.602879",
+      "feedback_count": 2
+    },
+    "profile_1": {
+      "parameters": {
+        "contrast": 1.25
+      },
+      "ratings": {
+        "sharpness": 3.0
+      },
+      "quality_rating": 3.5,
+      "created_at": "2024-12-07T18:14:09.599039",
+      "updated_at": "2024-12-07T18:14:09.625284",
+      "feedback_count": 2
+    },
+    "profile_2": {
+      "parameters": {
+        "contrast": 1.0
+      },
+      "ratings": {
+        "sharpness": 1
+      },
+      "quality_rating": 1,
+      "created_at": "2024-12-07T18:14:09.623896",
+      "updated_at": "2024-12-07T18:14:09.623899",
+      "feedback_count": 1
+    },
+    "profile_3": {
+      "parameters": {
+        "contrast": 1.0
+      },
+      "ratings": {
+        "sharpness": 2
+      },
+      "quality_rating": 2,
+      "created_at": "2024-12-07T18:14:09.624493",
+      "updated_at": "2024-12-07T18:14:09.624494",
+      "feedback_count": 1
+    }
+  },
+  "current_session": null
+}

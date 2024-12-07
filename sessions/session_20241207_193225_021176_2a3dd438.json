@@ -1,0 +1,11 @@
+{
+  "id": "20241207_193225_021176_2a3dd438",
+  "start_time": "2024-12-07T19:32:25.021186",
+  "status": "completed",
+  "operations": [],
+  "metrics": {},
+  "end_time": "2024-12-07T19:32:25.021299",
+  "results": {
+    "error": "'QualityManager' object has no attribute 'calculate_metrics'"
+  }
+}

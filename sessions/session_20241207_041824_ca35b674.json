@@ -1,0 +1,33 @@
+{
+  "id": "20241207_041824_ca35b674",
+  "start_time": "2024-12-07T04:18:24.706822",
+  "status": "completed",
+  "operations": [],
+  "metrics": {},
+  "end_time": "2024-12-07T04:18:24.722507",
+  "results": {
+    "initial_metrics": {
+      "sharpness": 0.15839256346225739,
+      "contrast": 0.4330126941204071,
+      "detail": 0.03999999910593033,
+      "color": 1.0,
+      "noise": 0.9842560291290283,
+      "texture": 0.9902146464646465,
+      "pattern": 0.13435345888137817
+    },
+    "final_metrics": {
+      "sharpness": 0.07999999821186066,
+      "contrast": 0.25,
+      "detail": 0.019999999552965164,
+      "color": 1.0,
+      "noise": 0.9959999918937683,
+      "texture": 0.9810606060606062,
+      "pattern": 0.09078556299209595
+    },
+    "processing_params": {
+      "quality_threshold": 0.8,
+      "max_iterations": 5,
+      "use_gpu": true
+    }
+  }
+}

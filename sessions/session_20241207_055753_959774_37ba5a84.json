@@ -1,0 +1,17 @@
+{
+  "id": "20241207_055753_959774_37ba5a84",
+  "start_time": "2024-12-07T05:57:53.959795",
+  "status": "completed",
+  "operations": [],
+  "metrics": {},
+  "end_time": "2024-12-07T05:57:54.034537",
+  "results": {
+    "initial_metrics": {
+      "sharpness": 0.0,
+      "contrast": 0.0,
+      "detail": 0.0,
+      "color": 1.0,
+      "noise": 1.0,
+      "texture": 1.0,
+      "pattern": 0.0,
+      "brightness": 

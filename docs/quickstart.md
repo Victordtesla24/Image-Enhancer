@@ -1,193 +1,146 @@
-# 5K AI Image Enhancer - Quick Start Guide
+# Quick Start Guide
+
+## Prerequisites
+- Python 3.11 or higher
+- CUDA-capable GPU (optional but recommended)
+- Git
 
 ## Installation
 
-1. **Clone the repository**
+1. Clone the repository:
 ```bash
-git clone https://github.com/Victordtesla24/Image-Enhancer.git
-cd Image-Enhancer
+git clone https://github.com/yourusername/image-enhancer.git
+cd image-enhancer
 ```
 
-2. **Create and activate virtual environment**
+2. Run the setup script:
 ```bash
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
+bash scripts/project_setup.sh
 ```
 
-3. **Install dependencies**
+3. Create and configure environment variables:
 ```bash
-pip install -r requirements.txt
+cp .env.example .env
+# Edit .env with your settings
 ```
 
-## Running the Application
+## Usage
 
-1. **Start the enhancement system**
+### Starting the Application
 ```bash
-python run.py
+bash scripts/run.sh
 ```
 
-2. **Access the interface**
-- Web Interface: `http://localhost:8501`
-- Enhancement Dashboard: `http://localhost:8501/enhance`
-- Quality Metrics: `http://localhost:8501/metrics`
+### Basic Operations
+1. Upload an image through the web interface
+2. Select enhancement options:
+   - Super Resolution
+   - Detail Enhancement
+   - Color Enhancement
+3. Adjust quality parameters
+4. Process the image
+5. Download the enhanced result
 
-## Enhancement Features
+### Batch Processing
+```python
+from src.utils.image_processor import ImageProcessor
 
-### 1. Image Enhancement
-- Upload images up to 5K resolution
-- Choose enhancement models:
-  * Super Resolution
-  * Detail Enhancement
-  * Color Enhancement
-- Adjust enhancement parameters in real-time
-- View before/after comparisons
-- Track enhancement progress
+processor = ImageProcessor()
+results = processor.process_batch(['image1.jpg', 'image2.jpg'])
+```
 
-### 2. Quality Control
-- Monitor quality metrics:
-  * Sharpness
-  * Color accuracy
-  * Detail preservation
-  * Noise levels
-- Adjust quality parameters
-- View quality suggestions
-- Track quality improvements
+### API Usage
+```python
+from src.utils.core.processor import Processor
 
-### 3. User Feedback
-- Provide enhancement feedback
-- Rate quality improvements
-- Customize enhancement preferences
-- Save enhancement profiles
-- Track enhancement history
+# Initialize processor
+processor = Processor()
 
-## Usage Guidelines
+# Process single image
+result = processor.process_image('input.jpg')
 
-### 1. Image Enhancement Process
-
-a) **Upload Image**
-   - Select image file
-   - Verify resolution and format
-   - View initial quality metrics
-
-b) **Choose Enhancement Models**
-   - Select desired models
-   - Adjust model parameters
-   - Preview enhancements
-
-c) **Apply Enhancements**
-   - Start enhancement process
-   - Monitor progress
-   - View quality metrics
-   - Provide feedback
-
-d) **Refine Results**
-   - Adjust parameters
-   - Reapply enhancements
-   - Compare versions
-   - Save final result
-
-### 2. Quality Optimization
-
-a) **Monitor Metrics**
-   - View real-time metrics
-   - Track improvements
-   - Identify issues
-   - Get suggestions
-
-b) **Adjust Parameters**
-   - Fine-tune settings
-   - Preview changes
-   - Apply adjustments
-   - Verify improvements
-
-### 3. Feedback Integration
-
-a) **Provide Feedback**
-   - Rate enhancements
-   - Suggest improvements
-   - Save preferences
-   - Track history
-
-b) **Use Learning System**
-   - Enable automatic learning
-   - Apply learned preferences
-   - Track adaptations
-   - Save profiles
-
-## System Requirements
-
-### Minimum Requirements
-- Python 3.8+
-- CUDA-compatible GPU (4GB+ VRAM)
-- 16GB RAM
-- 50GB storage
-
-### Recommended Specifications
-- CUDA-compatible GPU (8GB+ VRAM)
-- 32GB RAM
-- SSD storage
-- Multi-core CPU
+# Save result
+result.save('output.jpg')
+```
 
 ## Configuration
 
-### 1. Enhancement Settings
-```yaml
-enhancement:
-  super_resolution:
-    enabled: true
-    strength: 0.8
-  detail:
-    enabled: true
-    strength: 0.7
-  color:
-    enabled: true
-    strength: 0.7
+### Quality Settings
+```python
+config = {
+    "enhancement": {
+        "super_resolution": {"enabled": True, "strength": 0.7},
+        "detail": {"enabled": True, "strength": 0.8},
+        "color": {"enabled": True, "strength": 0.6}
+    },
+    "quality": {
+        "target_metrics": {
+            "sharpness": 0.8,
+            "color_accuracy": 0.8,
+            "detail_preservation": 0.8,
+            "noise_level": 0.2
+        }
+    }
+}
 ```
 
-### 2. Quality Settings
-```yaml
-quality:
-  target_metrics:
-    sharpness: 0.8
-    color_accuracy: 0.8
-    detail_preservation: 0.8
-    noise_level: 0.2
+### Performance Tuning
+```python
+# GPU Settings
+processor.use_gpu = True
+processor.batch_size = 4
+
+# Cache Settings
+processor.enable_cache = True
+processor.cache_dir = 'cache/models'
 ```
 
-### 3. User Preferences
-```yaml
-preferences:
-  auto_enhance: true
-  save_history: true
-  learning_enabled: true
-  feedback_frequency: "always"
+## Development
+
+### Running Tests
+```bash
+# Run all tests
+pytest
+
+# Run specific test
+pytest tests/test_processor.py
+
+# Run with coverage
+pytest --cov=src
 ```
 
-## Additional Resources
+### Code Style
+```bash
+# Format code
+black .
+isort .
 
-### Documentation
-- Enhancement Guide: `docs/enhancement.md`
-- Quality Guide: `docs/quality.md`
-- API Reference: `docs/api.md`
-- Model Guide: `docs/models.md`
+# Check style
+flake8 src tests
+```
 
-### Source Code
-- Enhancement Models: `src/models/`
-- Quality Management: `src/utils/quality_management/`
-- User Interface: `src/components/`
+## Troubleshooting
 
-### Examples
-- Sample Images: `examples/images/`
-- Enhancement Scripts: `examples/scripts/`
-- Configuration Files: `examples/configs/`
+### Common Issues
+1. GPU not detected
+   - Check CUDA installation
+   - Update GPU drivers
 
-## Token Management
+2. Memory errors
+   - Reduce batch size
+   - Enable memory optimization
 
-This quick start guide is automatically updated at 1M tokens to maintain accuracy.
+3. Quality issues
+   - Adjust enhancement parameters
+   - Check input image quality
 
-### Last Update: 2024-01-22
-- Document Version: 2.5.0
-- Token Count: 0
-- Next Update: 2024-01-23 00:00:00 UTC
+### Getting Help
+- Check documentation in `docs/`
+- Submit issues on GitHub
+- Contact support team
 
-This enhanced quick start guide focuses on the AI-powered image enhancement capabilities, quality management, and user interaction features of the 5K AI Image Enhancer.
+## Next Steps
+1. Read the full documentation
+2. Try example notebooks
+3. Explore advanced features
+4. Join the community
